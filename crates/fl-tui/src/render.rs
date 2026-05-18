@@ -14,8 +14,16 @@ const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o]
 const FOOTER_SHORT: &str = " r reload · R restart · q quit ";
 
 const MIN_WIDTH: u16 = 50;
-const MIN_HEIGHT: u16 = 12;
+const MIN_HEIGHT: u16 = 14;
 const NARROW_WIDTH: u16 = 90;
+const HEADER_HEIGHT: u16 = 5;
+
+// Stylised Flutter "F" mark, 3 rows × 5 cols. Coloured cyan to match Flutter brand.
+const FLUTTER_LOGO: &[&str] = &[
+    " ▟▛▘ ",
+    "▝▜▙  ",
+    "  ▀▘ ",
+];
 
 pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
@@ -25,7 +33,7 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(3),
+            Constraint::Length(HEADER_HEIGHT),
             Constraint::Min(6),
             Constraint::Length(1),
         ])
@@ -56,7 +64,7 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         1 => state.active_sessions[0].display_name.clone(),
         n => format!("{n} devices"),
     };
-    let full_title = format!(" fl ── {} · {} · {} ", state.app_name, state.mode, device);
+    let elapsed = format_elapsed(state.elapsed());
     let alpha = state.reload_flash_alpha();
     let bg = if alpha > 0.0 {
         lerp(theme.bg, theme.success, alpha * 0.4)
@@ -69,8 +77,78 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         .style(Style::default().fg(theme.fg).bg(bg));
     let inner = block.inner(area);
     block.render(area, buf);
-    let title = truncate_to_width(&full_title, inner.width as usize);
-    Paragraph::new(Line::styled(title, theme.header())).render(inner, buf);
+
+    // 3 rows inside (HEADER_HEIGHT 5 - 2 borders). Layout = logo (5 cols)
+    // + title block (rest) horizontally.
+    let cols = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Length(6), Constraint::Min(10)])
+        .split(inner);
+    render_logo(cols[0], buf, theme, bg);
+    render_header_text(cols[1], buf, theme, bg, state, &device, &elapsed);
+}
+
+fn render_logo(area: Rect, buf: &mut Buffer, theme: &Theme, bg: ratatui::style::Color) {
+    let lines: Vec<Line> = FLUTTER_LOGO
+        .iter()
+        .map(|row| {
+            Line::styled(
+                (*row).to_string(),
+                Style::default().fg(theme.cyan).bg(bg),
+            )
+        })
+        .collect();
+    Paragraph::new(lines).render(area, buf);
+}
+
+fn render_header_text(
+    area: Rect,
+    buf: &mut Buffer,
+    theme: &Theme,
+    bg: ratatui::style::Color,
+    state: &AppState,
+    device: &str,
+    elapsed: &str,
+) {
+    // Row 0: app · mode · device  (truncated to fit)
+    // Row 1: (blank — keeps the logo centered vertically)
+    // Row 2: ⏱ HH:MM:SS  in accent
+    let row0 = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Length(1),
+            Constraint::Length(1),
+        ])
+        .split(area);
+
+    let title = format!(" fl ── {} · {} · {} ", state.app_name, state.mode, device);
+    let title = truncate_to_width(&title, area.width as usize);
+    Paragraph::new(Line::styled(
+        title,
+        Style::default().fg(theme.accent).bg(bg)
+            .add_modifier(ratatui::style::Modifier::BOLD),
+    ))
+    .render(row0[0], buf);
+
+    let chrono = format!(" ⏱  {elapsed}");
+    Paragraph::new(Line::styled(
+        chrono,
+        Style::default().fg(theme.fg).bg(bg),
+    ))
+    .render(row0[2], buf);
+}
+
+fn format_elapsed(d: std::time::Duration) -> String {
+    let total = d.as_secs();
+    let h = total / 3600;
+    let m = (total % 3600) / 60;
+    let s = total % 60;
+    if h > 0 {
+        format!("{h:02}:{m:02}:{s:02}")
+    } else {
+        format!("{m:02}:{s:02}")
+    }
 }
 
 fn render_body(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
@@ -222,6 +300,38 @@ mod tests {
         assert_eq!(truncate_to_width("hello world", 8), "hello w…");
         assert_eq!(truncate_to_width("hello", 1), "…");
         assert_eq!(truncate_to_width("hello", 0), "");
+    }
+
+    #[test]
+    fn format_elapsed_under_one_hour_is_mmss() {
+        use std::time::Duration;
+        assert_eq!(format_elapsed(Duration::from_secs(0)), "00:00");
+        assert_eq!(format_elapsed(Duration::from_secs(83)), "01:23");
+        assert_eq!(format_elapsed(Duration::from_secs(3599)), "59:59");
+    }
+
+    #[test]
+    fn format_elapsed_over_one_hour_is_hhmmss() {
+        use std::time::Duration;
+        assert_eq!(format_elapsed(Duration::from_secs(3600)), "01:00:00");
+        assert_eq!(format_elapsed(Duration::from_secs(7384)), "02:03:04");
+    }
+
+    #[test]
+    fn header_includes_flutter_logo_and_chrono() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
+        let state = AppState::new("my_app".into(), "debug".into());
+        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        // The logo's chevron characters must be present somewhere in the header.
+        assert!(
+            text.contains('▟') || text.contains('▜'),
+            "missing Flutter logo glyph in header, got:\n{text}"
+        );
+        // The chrono icon should also appear.
+        assert!(text.contains('⏱'), "missing chrono icon, got:\n{text}");
+        // Initial elapsed is 00:00.
+        assert!(text.contains("00:00"), "missing elapsed time, got:\n{text}");
     }
 
     #[test]

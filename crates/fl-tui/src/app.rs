@@ -46,6 +46,7 @@ pub struct AppState {
     pub vm_connected: bool,
     pub banner: Option<Banner>,
     pub last_reload_at: Option<Instant>,
+    pub started_at: Instant,
     pub quitting: bool,
 }
 
@@ -83,8 +84,14 @@ impl AppState {
             vm_connected: false,
             banner: None,
             last_reload_at: None,
+            started_at: Instant::now(),
             quitting: false,
         }
+    }
+
+    /// Wallclock duration since `fl run` started this AppState.
+    pub fn elapsed(&self) -> Duration {
+        self.started_at.elapsed()
     }
 
     pub fn apply(&mut self, ev: AppEvent) {
