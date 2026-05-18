@@ -121,6 +121,7 @@ impl AppState {
                     d.ip = Some(new_ip.clone());
                 }
             }
+            DeviceEvent::SessionState { .. } => {}
             DeviceEvent::Error(msg) => {
                 self.show_banner(BannerKind::Error, &msg);
             }

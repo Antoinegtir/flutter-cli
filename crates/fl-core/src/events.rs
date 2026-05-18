@@ -21,6 +21,7 @@ pub enum DeviceEvent {
     WifiReconnecting { attempt: u32 },
     WifiReconnected,
     IpChanged { serial: String, old_ip: String, new_ip: String },
+    SessionState { serial: String, state: DeviceSessionState },
     Error(String),
 }
 
@@ -209,6 +210,26 @@ pub enum CleanEvent {
     Error(String),
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum DeviceSessionState {
+    Connecting,
+    Ready,
+    Reloading,
+    Stopped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DeviceSessionSummary {
+    pub serial: String,
+    pub short_name: String,
+    pub display_name: String,
+    pub connection: ConnectionKind,
+    pub ip: Option<String>,
+    pub state: DeviceSessionState,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -297,5 +318,36 @@ mod tests {
             }
             _ => panic!(),
         }
+    }
+
+    #[test]
+    fn session_state_roundtrips_through_json() {
+        let ev = AppEvent::Device(DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: DeviceSessionState::Ready,
+        });
+        let json = serde_json::to_string(&ev).unwrap();
+        let back: AppEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            AppEvent::Device(DeviceEvent::SessionState { serial, state }) => {
+                assert_eq!(serial, "ABC");
+                assert_eq!(state, DeviceSessionState::Ready);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn device_session_summary_equality() {
+        let s = DeviceSessionSummary {
+            serial: "S".into(),
+            short_name: "short".into(),
+            display_name: "Pixel 8".into(),
+            connection: ConnectionKind::Wifi,
+            ip: Some("1.2.3.4".into()),
+            state: DeviceSessionState::Connecting,
+        };
+        let t = s.clone();
+        assert_eq!(s, t);
     }
 }
