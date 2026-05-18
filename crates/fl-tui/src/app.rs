@@ -203,7 +203,7 @@ impl AppState {
         }
     }
 
-    fn expire_banner(&mut self) {
+    pub(crate) fn expire_banner(&mut self) {
         if let Some(b) = &self.banner {
             if let Some(d) = b.duration {
                 if b.shown_at.elapsed() >= d {
@@ -233,6 +233,36 @@ fn push_capped<T>(buf: &mut VecDeque<T>, item: T, cap: usize) {
         buf.pop_front();
     }
     buf.push_back(item);
+}
+
+impl crate::view::View for AppState {
+    type Input = fl_core::AppEvent;
+
+    fn apply(&mut self, input: Self::Input) {
+        AppState::apply(self, input);
+    }
+
+    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer, theme: &crate::theme::Theme) {
+        crate::render::render(area, buf, self, theme);
+    }
+
+    fn handle_key(&mut self, key: fl_core::KeyEvent) -> Option<Self::Input> {
+        match key {
+            fl_core::KeyEvent::Char('q') | fl_core::KeyEvent::Ctrl('c') => {
+                self.quitting = true;
+                None
+            }
+            _ => None,
+        }
+    }
+
+    fn tick(&mut self, _dt: std::time::Duration) {
+        self.expire_banner();
+    }
+
+    fn quitting(&self) -> bool {
+        self.quitting
+    }
 }
 
 #[cfg(test)]

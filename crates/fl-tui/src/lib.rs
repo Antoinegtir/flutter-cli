@@ -7,6 +7,7 @@ pub mod runner;
 pub mod spinner;
 pub mod splash;
 pub mod theme;
+pub mod view;
 
 pub use app::{AppState, Banner, BannerKind, LogLine};
 pub use render::render;
@@ -14,3 +15,4 @@ pub use runner::{map_key, TuiRunner};
 pub use spinner::Spinner;
 pub use splash::Splash;
 pub use theme::Theme;
+pub use view::View;
