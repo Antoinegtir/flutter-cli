@@ -33,6 +33,7 @@ impl Default for Config {
 }
 
 impl Config {
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Result<Self, toml::de::Error> {
         toml::from_str(s)
     }
