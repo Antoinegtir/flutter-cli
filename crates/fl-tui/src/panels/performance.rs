@@ -44,6 +44,15 @@ pub fn render_performance(area: Rect, buf: &mut Buffer, state: &AppState, theme:
     let inner = block.inner(area);
     block.render(area, buf);
 
+    let n = state.active_sessions.len();
+    if n <= 1 {
+        render_single(inner, buf, state, theme);
+    } else {
+        render_summary(inner, buf, state, theme, n);
+    }
+}
+
+fn render_single(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -84,6 +93,21 @@ pub fn render_performance(area: Rect, buf: &mut Buffer, state: &AppState, theme:
     Paragraph::new(rb).render(layout[3], buf);
 }
 
+fn render_summary(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme, n: usize) {
+    let cur_fps = state.fps_samples.back().copied().unwrap_or(0.0);
+    let spark_fps = sparkline(&state.fps_samples, 60.0, 8);
+    let line1 = Line::styled(
+        format!("FPS avg {spark_fps} {cur_fps:>4.1}  ·  {n} devices online"),
+        Style::default().fg(fps_color(cur_fps, theme)).bg(theme.bg),
+    );
+    let cur_mem = state.mem_samples.back().copied().unwrap_or(0.0);
+    let line2 = Line::styled(
+        format!("Mem ~{cur_mem:.0}MB total"),
+        theme.dimmed(),
+    );
+    Paragraph::new(vec![line1, line2]).render(inner, buf);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -105,5 +129,32 @@ mod tests {
         assert_eq!(fps_color(60.0, &t), t.success);
         assert_eq!(fps_color(40.0, &t), t.warn);
         assert_eq!(fps_color(15.0, &t), t.error);
+    }
+
+    #[test]
+    fn renders_summary_when_two_or_more_sessions() {
+        use crate::app::AppState;
+        use fl_core::{AppEvent, DeviceEvent, DeviceSessionState};
+
+        let mut s = AppState::new("a".into(), "d".into());
+        for serial in ["a", "b", "c"] {
+            s.apply(AppEvent::Device(DeviceEvent::SessionState {
+                serial: serial.into(),
+                state: DeviceSessionState::Ready,
+            }));
+        }
+        // Add some sample data so sparkline has content
+        s.fps_samples.push_back(30.0);
+        s.fps_samples.push_back(35.0);
+        s.mem_samples.push_back(128.0);
+
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 5));
+        render_performance(Rect::new(0, 0, 80, 5), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            text.push('\n');
+        }
+        assert!(text.contains("3 devices"), "missing summary count:\n{text}");
     }
 }
