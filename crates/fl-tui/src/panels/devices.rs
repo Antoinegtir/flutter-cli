@@ -30,11 +30,14 @@ fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>
     };
     let palette = [theme.accent, theme.cyan, theme.success, theme.warn];
     let prefix_color = palette[prefix_color_index(&session.short_name)];
+    let plat_display = session.platform.as_deref().map(|p| if p == "ios-simulator" { "ios-sim" } else { p }).unwrap_or("");
     let row1 = Line::from(vec![
         Span::styled(format!("{bullet} "), Style::default().fg(bullet_color).bg(theme.bg)),
         Span::styled(format!("[{:<8}] ", session.short_name), Style::default().fg(prefix_color).bg(theme.bg)),
         Span::styled(session.display_name.clone(), theme.base()),
         Span::raw("  "),
+        Span::styled(format!("{plat_display:<9}"), theme.dimmed()),
+        Span::raw(" "),
         Span::styled(icon.to_string(), theme.dimmed()),
         Span::raw("  "),
         Span::styled(state_label.to_string(), theme.dimmed()),
@@ -128,5 +131,35 @@ mod tests {
         }
         assert!(text.contains("↻"), "expected reconnecting indicator, got:\n{text}");
         assert!(text.contains("#2"));
+    }
+
+    #[test]
+    fn render_includes_platform_tag() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Ready,
+        }));
+        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::Discovered(
+            fl_core::Device {
+                serial: "ABC".into(),
+                name: "iPhone".into(),
+                model: None,
+                connection: fl_core::ConnectionKind::Wifi,
+                state: fl_core::DeviceState::Online,
+                ip: None,
+                android_version: None,
+                battery: None,
+                platform: Some("ios".into()),
+            }
+        )));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 6));
+        render_devices(Rect::new(0, 0, 80, 6), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            text.push('\n');
+        }
+        assert!(text.contains("ios"), "missing platform tag, got:\n{text}");
     }
 }

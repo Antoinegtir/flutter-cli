@@ -109,8 +109,9 @@ impl View for DevicePickerView {
                 ConnectionKind::Wifi => "WiFi",
                 ConnectionKind::Usb => "USB",
             };
+            let plat = d.platform.as_deref().map(|p| if p == "ios-simulator" { "ios-sim" } else { p }).unwrap_or("");
             lines.push(Line::styled(
-                format!("{arrow}{bullet} {:<22} {} · {}", d.name, conn, d.serial),
+                format!("{arrow}{bullet} {:<22} {:<9} {} · {}", d.name, plat, conn, d.serial),
                 if i == self.cursor {
                     Style::default().fg(theme.accent).bg(theme.bg)
                 } else {
@@ -225,5 +226,32 @@ mod tests {
         v.apply(DevicePickerInput::DeviceFound(dev("A")));
         v.apply(DevicePickerInput::DeviceFound(dev("B")));
         assert_eq!(v.devices.len(), 2);
+    }
+
+    #[test]
+    fn renders_platform_column() {
+        use crate::theme::Theme;
+        use ratatui::buffer::Buffer;
+        use ratatui::layout::Rect;
+        let dev_with_platform = Device {
+            serial: "X".into(),
+            name: "iPhone".into(),
+            model: None,
+            connection: ConnectionKind::Usb,
+            state: DeviceState::Online,
+            ip: None,
+            android_version: None,
+            battery: None,
+            platform: Some("ios".into()),
+        };
+        let v = DevicePickerView::with_devices(vec![dev_with_platform]);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 6));
+        v.render(Rect::new(0, 0, 80, 6), &mut buf, &Theme::TOKYO_NIGHT);
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            text.push('\n');
+        }
+        assert!(text.contains("ios"), "missing platform tag, got:\n{text}");
     }
 }
