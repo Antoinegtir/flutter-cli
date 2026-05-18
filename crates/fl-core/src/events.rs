@@ -201,6 +201,14 @@ pub enum PubEvent {
     Done { success: bool },
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CleanEvent {
+    Probing,
+    Cleaning { path: String },
+    Done { freed_bytes: u64, paths: Vec<String> },
+    Error(String),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -272,5 +280,22 @@ mod tests {
         assert_eq!(BuildTarget::Aab.flutter_arg(), "appbundle");
         assert_eq!(BuildTarget::Ios.flutter_arg(), "ios");
         assert_eq!(BuildTarget::Web.flutter_arg(), "web");
+    }
+
+    #[test]
+    fn cleanevent_done_roundtrips() {
+        let original = CleanEvent::Done {
+            freed_bytes: 12345,
+            paths: vec!["build/".into(), ".dart_tool/".into()],
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: CleanEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            CleanEvent::Done { freed_bytes, paths } => {
+                assert_eq!(freed_bytes, 12345);
+                assert_eq!(paths.len(), 2);
+            }
+            _ => panic!(),
+        }
     }
 }
