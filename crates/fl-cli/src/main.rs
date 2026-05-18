@@ -1,3 +1,4 @@
+mod build_cmd;
 mod cli;
 mod devices_cmd;
 mod run_cmd;

@@ -8,6 +8,7 @@ pub mod spinner;
 pub mod splash;
 pub mod theme;
 pub mod view;
+pub mod views;
 
 pub use app::{AppState, Banner, BannerKind, LogLine};
 pub use render::render;
@@ -16,3 +17,4 @@ pub use spinner::Spinner;
 pub use splash::Splash;
 pub use theme::Theme;
 pub use view::View;
+pub use views::build_view::BuildView;
