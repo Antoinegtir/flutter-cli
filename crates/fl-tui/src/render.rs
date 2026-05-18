@@ -74,7 +74,7 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     block.render(area, buf);
 
     // Status label that shimmers while something is happening.
-    // `building…` during compile; `refresh…` briefly after a hot reload.
+    // `Building…` during compile; `Refresh…` briefly after a hot reload.
     let status_text: Option<&'static str> = if state.compile_finished.is_none() {
         Some("Building…")
     } else if state.reload_flash_alpha() > 0.05 {
@@ -83,19 +83,19 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         None
     };
 
-    // Three segments: title (flex) | status (shimmer, fixed) | chrono (right-aligned).
+    // Right segment: optional status + chrono, drawn together so the
+    // shimmer sweep flows from the label straight through the digits.
     let chrono_text = format!("{chrono_icon} {elapsed}");
-    let chrono_width = chrono_text.chars().count() as u16 + 2;
-    let status_width = status_text.map(|s| s.chars().count() as u16 + 2).unwrap_or(0);
-    let title_width = inner.width.saturating_sub(chrono_width).saturating_sub(status_width);
+    let right_block = match status_text {
+        Some(s) => format!("{s}  {chrono_text}"),
+        None => chrono_text.clone(),
+    };
+    let right_width = right_block.chars().count() as u16 + 2; // 1-col padding each side
+    let title_width = inner.width.saturating_sub(right_width);
 
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(title_width),
-            Constraint::Length(status_width),
-            Constraint::Length(chrono_width),
-        ])
+        .constraints([Constraint::Length(title_width), Constraint::Length(right_width)])
         .split(inner);
 
     // Title with brightness indicator.
@@ -113,22 +113,21 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     ))
     .render(cols[0], buf);
 
-    // Shimmering status.
-    if let Some(s) = status_text {
+    // Right side: shimmer when something is happening, static otherwise.
+    if status_text.is_some() {
         let phase = shimmer_phase(state.started_at.elapsed());
-        let line = shimmer_line(s, theme.dim, theme.accent, phase, bg);
+        let line = shimmer_line(&right_block, theme.dim, theme.accent, phase, bg);
         Paragraph::new(line)
-            .alignment(ratatui::layout::Alignment::Center)
+            .alignment(ratatui::layout::Alignment::Right)
             .render(cols[1], buf);
+    } else {
+        Paragraph::new(Line::styled(
+            format!("{chrono_text} "),
+            Style::default().fg(chrono_color).bg(bg),
+        ))
+        .alignment(ratatui::layout::Alignment::Right)
+        .render(cols[1], buf);
     }
-
-    // Chronometer.
-    Paragraph::new(Line::styled(
-        format!("{chrono_text} "),
-        Style::default().fg(chrono_color).bg(bg),
-    ))
-    .alignment(ratatui::layout::Alignment::Right)
-    .render(cols[2], buf);
 }
 
 /// Animation phase in `[0, 1)` cycling once every 1.5 s. Used by the
