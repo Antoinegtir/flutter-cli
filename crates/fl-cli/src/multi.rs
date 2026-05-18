@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
+#[allow(dead_code)]
 pub struct DeviceSession {
     pub serial: String,
     pub short_name: String,
@@ -40,6 +41,7 @@ impl DeviceSession {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn spawn_session<R: CommandRunner + 'static>(
     runner: Arc<R>,
     flutter: &Path,
@@ -130,6 +132,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     Ok(session)
 }
 
+#[allow(dead_code)]
 pub async fn broadcast_key(key: FlKey, sessions: &[DeviceSession], events: &mpsc::Sender<AppEvent>) {
     let mut futures = Vec::new();
     for s in sessions {
@@ -183,14 +186,122 @@ fn dirs_home() -> Option<&'static Path> {
         .as_deref()
 }
 
-// Suppress unused-warning while Task 7 wires this module in.
-#[allow(dead_code)]
-fn _multi_module_marker() {
-    let _ = parse_devices_l;
-    let _ = track_devices;
-    let _ = TokioRunner;
-    let _ = AppState::new;
-    let _ = TuiRunner::init;
+pub async fn run_multi(
+    project: Option<PathBuf>,
+    devices_arg: Vec<String>,
+    all: bool,
+    no_picker: bool,
+    no_wifi: bool,
+    mode: BuildMode,
+) -> anyhow::Result<()> {
+    let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
+    let flutter = resolve_flutter_path()?;
+    let runner = Arc::new(TokioRunner);
+
+    let listed = runner.run("adb", &["devices", "-l"]).await?;
+    let all_devices = parse_devices_l(&listed.stdout);
+
+    let headless = std::env::var_os("FL_HEADLESS").is_some();
+    let chosen: Vec<String> = if !devices_arg.is_empty() {
+        devices_arg
+    } else if all {
+        if all_devices.is_empty() {
+            return Err(anyhow!("--all specified but no devices attached"));
+        }
+        all_devices.iter().map(|d| d.serial.clone()).collect()
+    } else if all_devices.len() <= 1 || no_picker || headless {
+        all_devices.first().map(|d| vec![d.serial.clone()]).unwrap_or_default()
+    } else {
+        run_picker(&all_devices).await?
+    };
+
+    if chosen.is_empty() {
+        return Err(anyhow!("no devices to run on"));
+    }
+
+    let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(256);
+    let mut sessions: Vec<DeviceSession> = Vec::new();
+    for serial in &chosen {
+        let usb_pair = all_devices
+            .iter()
+            .find(|d| d.serial == *serial && matches!(d.connection, fl_core::ConnectionKind::Usb))
+            .map(|d| d.serial.clone());
+        let s = spawn_session(
+            runner.clone(),
+            &flutter,
+            &project,
+            serial.clone(),
+            usb_pair,
+            no_wifi,
+            mode,
+            event_tx.clone(),
+        )
+        .await?;
+        sessions.push(s);
+    }
+
+    {
+        let tx = event_tx.clone();
+        tokio::spawn(async move {
+            let (dev_tx, mut dev_rx) = mpsc::channel(32);
+            tokio::spawn(async move {
+                if let Err(e) = track_devices(dev_tx).await {
+                    tracing::warn!("track-devices loop ended: {e}");
+                }
+            });
+            while let Some(ev) = dev_rx.recv().await {
+                tx.send(AppEvent::Device(ev)).await.ok();
+            }
+        });
+    }
+
+    if headless {
+        let app_name = project
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("app")
+            .to_string();
+        let mut state = AppState::new(app_name, "debug".into());
+        while let Some(ev) = event_rx.recv().await {
+            println!("{ev:?}");
+            state.apply(ev);
+            if !state.active_sessions.is_empty()
+                && state.active_sessions.iter().all(|s| matches!(s.state, DeviceSessionState::Stopped)) {
+                break;
+            }
+        }
+        return Ok(());
+    }
+
+    let app_name = project.file_name().and_then(|n| n.to_str()).unwrap_or("app").to_string();
+    let mut state = AppState::new(app_name, "debug".into());
+    let mut tui = TuiRunner::init()?;
+    let (keys_tx, _keys_rx) = mpsc::channel::<FlKey>(1);
+    let result = tui.run(&mut state, &mut event_rx, keys_tx).await;
+
+    for s in &sessions {
+        let mut guard = s.daemon.lock().await;
+        if let Some(d) = guard.as_mut() {
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), d.send_quit()).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), d.wait()).await;
+        }
+    }
+    let _ = tui.restore();
+    result
+}
+
+async fn run_picker(devices: &[fl_core::Device]) -> anyhow::Result<Vec<String>> {
+    use fl_tui::{DevicePickerInput, DevicePickerOutcome, DevicePickerView};
+    let mut view = DevicePickerView::with_devices(devices.to_vec());
+    let (_tx, mut rx) = mpsc::channel::<DevicePickerInput>(1);
+    let mut tui = TuiRunner::init()?;
+    let r = tui.run_view(&mut view, &mut rx).await;
+    let _ = tui.restore();
+    r?;
+    match view.outcome {
+        Some(DevicePickerOutcome::Picked(serials)) => Ok(serials),
+        Some(DevicePickerOutcome::Cancelled) | None => Err(anyhow!("device selection cancelled")),
+    }
 }
 
 #[cfg(test)]
