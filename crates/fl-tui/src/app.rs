@@ -300,20 +300,20 @@ impl AppState {
             }
             fl_core::KeyEvent::Char('r') => {
                 self.flash_reload();
-                self.show_banner(BannerKind::Info, "Hot reload requested (VM Service not yet wired)");
+                self.show_banner(BannerKind::Info, "Hot reload");
             }
             fl_core::KeyEvent::Char('R') => {
                 self.flash_reload();
-                self.show_banner(BannerKind::Info, "Hot restart requested (VM Service not yet wired)");
+                self.show_banner(BannerKind::Info, "Hot restart");
             }
             fl_core::KeyEvent::Char('b') => {
-                self.show_banner(BannerKind::Info, "Toggle brightness (VM Service not yet wired)");
+                self.show_banner(BannerKind::Info, "Toggle brightness");
             }
             fl_core::KeyEvent::Char('p') => {
-                self.show_banner(BannerKind::Info, "Toggle debug paint (VM Service not yet wired)");
+                self.show_banner(BannerKind::Info, "Toggle debug paint");
             }
             fl_core::KeyEvent::Char('o') => {
-                self.show_banner(BannerKind::Info, "Toggle platform (VM Service not yet wired)");
+                self.show_banner(BannerKind::Info, "Toggle platform");
             }
             fl_core::KeyEvent::Char('c') => {
                 self.logs.clear();

@@ -17,10 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct DeviceSession {
     pub serial: String,
     pub short_name: String,
+    #[allow(dead_code)] // surfaced via session listing logs; reserved for future UI use
     pub display_name: String,
     pub daemon: Arc<Mutex<Option<FlutterDaemon>>>,
     pub vm_client: Arc<Mutex<Option<VmServiceClient>>>,
@@ -102,18 +103,32 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let short_for_logs = session.short_name.clone();
     let serial_for_state = session.serial.clone();
     let event_tx_logs = event_tx.clone();
+    let vm_client_slot = session.vm_client.clone();
+    let isolate_slot = session.isolate_id.clone();
     tokio::spawn(async move {
+        let mut vm_connected = false;
         while let Some(ev) = flutter_rx.recv().await {
             let prefixed = match ev {
                 FlutterEvent::Log { level, message } => FlutterEvent::Log {
                     level,
                     message: format!("[{short_for_logs}] {message}"),
                 },
-                FlutterEvent::AppStarted { .. } => {
+                FlutterEvent::AppStarted { ref vm_service_uri, .. } => {
                     event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
                         serial: serial_for_state.clone(),
                         state: DeviceSessionState::Ready,
                     })).await.ok();
+                    // First AppStarted with a non-empty URI: kick off VM Service.
+                    if !vm_connected && !vm_service_uri.is_empty() {
+                        vm_connected = true;
+                        connect_vm_service(
+                            vm_service_uri.clone(),
+                            vm_client_slot.clone(),
+                            isolate_slot.clone(),
+                            event_tx_logs.clone(),
+                            short_for_logs.clone(),
+                        );
+                    }
                     ev
                 }
                 FlutterEvent::Stopped { .. } => {
@@ -143,7 +158,69 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     Ok(session)
 }
 
-#[allow(dead_code)]
+/// Spawn a task that connects to the Flutter VM Service at `uri`, stores the
+/// resulting client + first isolate ID in the session's slots, and bridges
+/// VM Service events into the global AppEvent channel.
+fn connect_vm_service(
+    uri: String,
+    client_slot: Arc<Mutex<Option<VmServiceClient>>>,
+    isolate_slot: Arc<Mutex<Option<String>>>,
+    event_tx: mpsc::Sender<AppEvent>,
+    short_name: String,
+) {
+    tokio::spawn(async move {
+        let (vm_tx, mut vm_rx) = mpsc::channel::<fl_core::VmEvent>(128);
+        // Bridge VmEvents → AppEvent::Vm.
+        let event_tx_bridge = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = vm_rx.recv().await {
+                event_tx_bridge.send(AppEvent::Vm(ev)).await.ok();
+            }
+        });
+
+        let client = match VmServiceClient::connect(&uri, vm_tx).await {
+            Ok(c) => c,
+            Err(e) => {
+                event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Warn,
+                    message: format!("[{short_name}] VM Service connect failed: {e}"),
+                })).await.ok();
+                return;
+            }
+        };
+
+        // Subscribe to streams.
+        let _ = client.stream_listen("Stdout").await;
+        let _ = client.stream_listen("Stderr").await;
+        let _ = client.stream_listen("Isolate").await;
+        let _ = client.stream_listen("Extension").await;
+
+        // Isolate isn't always immediately available — retry briefly.
+        let mut isolate_id: Option<String> = None;
+        for _ in 0..40 {
+            if let Ok(id) = client.get_first_isolate_id().await {
+                isolate_id = Some(id);
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+        }
+
+        if let Some(id) = isolate_id {
+            *isolate_slot.lock().await = Some(id);
+            *client_slot.lock().await = Some(client);
+            event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                level: LogLevel::Info,
+                message: format!("[{short_name}] VM Service ready"),
+            })).await.ok();
+        } else {
+            event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                level: LogLevel::Warn,
+                message: format!("[{short_name}] VM Service: no isolate found after 10s"),
+            })).await.ok();
+        }
+    });
+}
+
 pub async fn broadcast_key(key: FlKey, sessions: &[DeviceSession], events: &mpsc::Sender<AppEvent>) {
     let mut futures = Vec::new();
     for s in sessions {
@@ -334,7 +411,26 @@ pub async fn run_multi(
     let app_name = project.file_name().and_then(|n| n.to_str()).unwrap_or("app").to_string();
     let mut state = AppState::new(app_name, "debug".into());
     let mut tui = TuiRunner::init()?;
-    let (keys_tx, _keys_rx) = mpsc::channel::<FlKey>(1);
+    let (keys_tx, mut keys_rx) = mpsc::channel::<FlKey>(16);
+
+    // Key dispatcher: each keystroke from the TUI is broadcast to every
+    // session's VM Service client (hot reload, restart, theme, paint, ...).
+    {
+        let sessions_for_keys: Vec<DeviceSession> = sessions.iter().cloned().collect();
+        let event_tx_keys = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(k) = keys_rx.recv().await {
+                if matches!(
+                    k,
+                    FlKey::Char('r') | FlKey::Char('R') | FlKey::Char('b')
+                  | FlKey::Char('p') | FlKey::Char('o') | FlKey::Char('P')
+                ) {
+                    broadcast_key(k, &sessions_for_keys, &event_tx_keys).await;
+                }
+            }
+        });
+    }
+
     let result = tui.run(&mut state, &mut event_rx, keys_tx).await;
 
     // Restore the terminal IMMEDIATELY so the user gets their shell back.
