@@ -2,11 +2,13 @@
 
 pub mod app;
 pub mod panels;
+pub mod render;
 pub mod spinner;
 pub mod splash;
 pub mod theme;
 
 pub use app::{AppState, Banner, BannerKind, LogLine};
+pub use render::render;
 pub use spinner::Spinner;
 pub use splash::Splash;
 pub use theme::Theme;
