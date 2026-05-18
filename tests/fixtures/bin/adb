@@ -1,5 +1,8 @@
 #!/bin/sh
-# Faux adb. Reads scenario file at $FL_ADB_FIXTURE; default behavior otherwise.
+# Faux adb for fl integration tests.
+# Honors FL_ADB_FIXTURE_DEVICES (custom `adb devices -l` output) and
+# FL_ADB_CONNECT_FAILS_FIRST_N (the first N `adb connect` calls fail).
+
 case "$1" in
   devices)
     if [ -f "$FL_ADB_FIXTURE_DEVICES" ]; then
@@ -15,7 +18,7 @@ case "$1" in
         if [ "$4" = "ip" ]; then
           echo "    inet 192.168.1.42/24 brd 192.168.1.255 scope global wlan0"
         elif [ "$4" = "getprop" ]; then
-          echo "14"
+          echo "Pixel 8"
         elif [ "$4" = "dumpsys" ]; then
           echo "  level: 87"
         else
@@ -25,7 +28,18 @@ case "$1" in
     esac
     ;;
   connect)
-    echo "connected to $2"
+    state_dir="${TMPDIR:-/tmp}/fl-fake-adb"
+    mkdir -p "$state_dir"
+    counter_file="$state_dir/connect_calls"
+    n=$(cat "$counter_file" 2>/dev/null || echo 0)
+    n=$((n + 1))
+    echo "$n" > "$counter_file"
+    fails="${FL_ADB_CONNECT_FAILS_FIRST_N:-0}"
+    if [ "$n" -le "$fails" ]; then
+      echo "failed to connect to $2"
+    else
+      echo "connected to $2"
+    fi
     ;;
 esac
 exit 0
