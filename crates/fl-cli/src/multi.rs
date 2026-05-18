@@ -416,7 +416,7 @@ pub async fn run_multi(
     // Key dispatcher: each keystroke from the TUI is broadcast to every
     // session's VM Service client (hot reload, restart, theme, paint, ...).
     {
-        let sessions_for_keys: Vec<DeviceSession> = sessions.iter().cloned().collect();
+        let sessions_for_keys: Vec<DeviceSession> = sessions.to_vec();
         let event_tx_keys = event_tx.clone();
         tokio::spawn(async move {
             while let Some(k) = keys_rx.recv().await {
