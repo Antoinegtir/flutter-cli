@@ -5,6 +5,7 @@ members = [
     "crates/fl-adb",
     "crates/fl-flutter",
     "crates/fl-vmservice",
+    "crates/fl-tui",
 ]
 
 [workspace.package]

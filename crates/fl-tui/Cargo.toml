@@ -1,0 +1,19 @@
+[package]
+name = "fl-tui"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+fl-core = { path = "../fl-core" }
+anyhow.workspace = true
+ratatui.workspace = true
+crossterm.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+tracing.workspace = true
+chrono.workspace = true
+futures-util.workspace = true
+
+[dev-dependencies]
+insta = "1.34"
