@@ -29,6 +29,12 @@ pub struct TestView {
     pub quitting: bool,
 }
 
+impl Default for TestView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TestView {
     pub fn new() -> Self {
         Self {

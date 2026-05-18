@@ -24,6 +24,12 @@ pub struct DoctorView {
     pub quitting: bool,
 }
 
+impl Default for DoctorView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DoctorView {
     pub fn new() -> Self {
         Self { sections: Vec::new(), cursor: 0, done: false, quitting: false }
@@ -75,15 +81,11 @@ impl View for DoctorView {
             FlKey::Char('q') | FlKey::Ctrl('c') => {
                 self.quitting = true;
             }
-            FlKey::Down => {
-                if self.cursor + 1 < self.sections.len() {
-                    self.cursor += 1;
-                }
+            FlKey::Down if self.cursor + 1 < self.sections.len() => {
+                self.cursor += 1;
             }
-            FlKey::Up => {
-                if self.cursor > 0 {
-                    self.cursor -= 1;
-                }
+            FlKey::Up if self.cursor > 0 => {
+                self.cursor -= 1;
             }
             FlKey::Enter | FlKey::Char(' ') => {
                 if let Some(sec) = self.sections.get_mut(self.cursor) {

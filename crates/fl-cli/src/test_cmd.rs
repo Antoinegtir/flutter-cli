@@ -17,7 +17,7 @@ pub async fn run(project: Option<PathBuf>, name_filter: Option<String>) -> anyho
     if !project.join("test").is_dir() {
         return Err(anyhow!("no test/ directory in {}", project.display()));
     }
-    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home().as_deref())
+    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
         .ok_or_else(|| anyhow!("flutter binary not found"))?;
 
     let (tx, mut rx) = mpsc::channel::<fl_core::TestEvent>(128);

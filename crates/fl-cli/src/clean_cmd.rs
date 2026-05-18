@@ -13,7 +13,7 @@ const CLEAN_PATHS: &[&str] = &["build", ".dart_tool", ".flutter-plugins", ".flut
 
 pub async fn run(project: Option<PathBuf>) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
-    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home().as_deref())
+    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
         .ok_or_else(|| anyhow!("flutter binary not found"))?;
 
     let (tx, mut rx) = mpsc::channel::<CleanEvent>(32);

@@ -11,7 +11,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 
 pub async fn run() -> anyhow::Result<()> {
-    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home().as_deref())
+    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
         .ok_or_else(|| anyhow!("flutter binary not found"))?;
 
     let (tx, mut rx) = mpsc::channel::<DoctorEvent>(32);

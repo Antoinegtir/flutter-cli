@@ -17,7 +17,7 @@ pub async fn run(sub: PubSub, project: Option<PathBuf>) -> anyhow::Result<()> {
     if !project.join("pubspec.yaml").exists() {
         return Err(anyhow!("no pubspec.yaml in {}", project.display()));
     }
-    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home().as_deref())
+    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
         .ok_or_else(|| anyhow!("flutter binary not found"))?;
 
     let (tx, mut rx) = mpsc::channel::<PubEvent>(64);

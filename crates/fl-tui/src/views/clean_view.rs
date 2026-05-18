@@ -21,6 +21,12 @@ pub struct CleanView {
     pub error: Option<String>,
 }
 
+impl Default for CleanView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CleanView {
     pub fn new() -> Self {
         Self {
