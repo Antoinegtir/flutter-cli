@@ -150,6 +150,19 @@ pub enum TestEvent {
     AllDone { success: bool, passed: u32, failed: u32, skipped: u32 },
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum DoctorStatus {
+    Ok,
+    Warning,
+    Error,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum DoctorEvent {
+    Section { status: DoctorStatus, title: String, details: Vec<String> },
+    Done,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
