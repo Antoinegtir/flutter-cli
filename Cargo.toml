@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/fl-core",
     "crates/fl-adb",
+    "crates/fl-flutter",
 ]
 
 [workspace.package]
