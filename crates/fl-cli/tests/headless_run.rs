@@ -204,3 +204,28 @@ fn headless_clean_completes_with_zero_freed() {
     );
     assert!(out.contains("Done"), "missing Done event:\n{out}");
 }
+
+#[test]
+fn headless_multi_device_emits_two_app_started() {
+    ensure_binary_built();
+    let _ = std::fs::remove_dir_all("/tmp/fl-fake-adb");
+
+    let pubspec = pubspec_in_workspace();
+    let devices_file = fixtures().join("scenarios/multi_devices.txt");
+    let scenario = fixtures().join("scenarios/nominal.txt");
+    let out = run_fl_with_env(
+        &[
+            "run",
+            "--no-picker", "--no-wifi",
+            "--device", "DEV1",
+            "--device", "DEV2",
+            "--project", pubspec.to_str().unwrap(),
+        ],
+        &[
+            ("FL_ADB_FIXTURE_DEVICES", &devices_file),
+            ("FL_FLUTTER_SCENARIO", &scenario),
+        ],
+    );
+    let starts = out.matches("AppStarted").count();
+    assert!(starts >= 2, "expected ≥ 2 AppStarted events, output:\n{out}");
+}

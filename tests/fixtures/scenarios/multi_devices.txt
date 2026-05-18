@@ -1,0 +1,3 @@
+List of devices attached
+DEV1                 device usb:1-2 product:husky model:Pixel_8 device:husky transport_id:1
+DEV2                 device usb:1-3 product:other model:Tablet device:tab transport_id:2
