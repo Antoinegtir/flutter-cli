@@ -11,5 +11,5 @@ pub use daemon::FlutterDaemon;
 pub use doctor_parse::parse_doctor_output;
 pub use parse::parse_daemon_line;
 pub use path::resolve_flutter;
-pub use pub_parse::parse_pub_get;
+pub use pub_parse::{parse_deps_json, parse_outdated_table, parse_pub_get};
 pub use test_parse::parse_test_line;
