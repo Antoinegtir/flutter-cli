@@ -453,6 +453,7 @@ dependencies = [
  "fl-tui",
  "fl-vmservice",
  "futures-util",
+ "serde_json",
  "tokio",
  "tracing",
  "tracing-appender",

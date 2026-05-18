@@ -276,7 +276,16 @@ pub async fn broadcast_key(
     for s in sessions {
         let vm = s.vm_client.lock().await.clone();
         let iso = s.isolate_id.lock().await.clone();
-        let (Some(client), Some(iso)) = (vm, iso) else { continue };
+        let (Some(client), Some(iso)) = (vm, iso) else {
+            // We have a session but no VM client yet — the user pressed
+            // an extension key before the connection completed. Make it
+            // visible instead of silently doing nothing.
+            events.send(AppEvent::Flutter(FlutterEvent::Log {
+                level: LogLevel::Warn,
+                message: format!("[{}] VM Service not ready yet — ignoring {:?}", s.short_name, key),
+            })).await.ok();
+            continue;
+        };
         let short = s.short_name.clone();
         let key_copy = key;
         futures.push(async move {
@@ -287,18 +296,46 @@ pub async fn broadcast_key(
                 FlKey::Char('P') => client.toggle_performance_overlay(&iso, true).await,
                 _ => return None,
             };
-            Some((short, res.err().map(|e| e.to_string())))
+            Some((short, res))
         });
     }
     let results = futures_util::future::join_all(futures).await;
     for outcome in results.into_iter().flatten() {
-        let (short, err) = outcome;
-        if let Some(e) = err {
-            events.send(AppEvent::Flutter(FlutterEvent::Log {
-                level: LogLevel::Error,
-                message: format!("[{short}] {key:?} -> {e}"),
-            })).await.ok();
+        let (short, res) = outcome;
+        match res {
+            Ok(value) => {
+                // Success — surface the response so the user knows the call
+                // actually landed (their app may simply not be wired to
+                // MediaQuery.platformBrightnessOf etc.).
+                let label = match key {
+                    FlKey::Char('b') => "brightness",
+                    FlKey::Char('p') => "debug paint",
+                    FlKey::Char('o') => "platform override",
+                    FlKey::Char('P') => "performance overlay",
+                    _ => "extension",
+                };
+                events.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Info,
+                    message: format!("[{short}] {label} OK → {}", compact_json(&value)),
+                })).await.ok();
+            }
+            Err(e) => {
+                events.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Error,
+                    message: format!("[{short}] {key:?} -> {e}"),
+                })).await.ok();
+            }
         }
+    }
+}
+
+/// One-line summary of a JSON value for log output.
+fn compact_json(v: &serde_json::Value) -> String {
+    let s = v.to_string();
+    if s.chars().count() > 120 {
+        s.chars().take(117).chain("…".chars()).collect()
+    } else {
+        s
     }
 }
 
