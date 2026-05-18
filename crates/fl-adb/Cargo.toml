@@ -13,3 +13,6 @@ tokio.workspace = true
 tracing.workspace = true
 bytes.workspace = true
 mdns-sd.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util"] }

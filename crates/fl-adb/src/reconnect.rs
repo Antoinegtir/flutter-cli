@@ -141,6 +141,74 @@ pub fn transition(state: State, input: Input) -> (State, Vec<Output>) {
     }
 }
 
+use crate::runner::CommandRunner;
+use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
+
+pub struct ManagerHandle {
+    pub input_tx: mpsc::Sender<Input>,
+    pub task: JoinHandle<()>,
+}
+
+pub fn spawn<R>(
+    setup: ManagerSetup,
+    runner: Arc<R>,
+    out_tx: mpsc::Sender<DeviceEvent>,
+) -> ManagerHandle
+where
+    R: CommandRunner + 'static,
+{
+    let (input_tx, mut input_rx) = mpsc::channel::<Input>(64);
+    let internal_tx = input_tx.clone();
+    let task = tokio::spawn(async move {
+        let mut state = State::new(setup);
+        while let Some(input) = input_rx.recv().await {
+            let (next, outs) = transition(state, input);
+            state = next;
+            for out in outs {
+                match out {
+                    Output::Emit(ev) => {
+                        out_tx.send(ev).await.ok();
+                    }
+                    Output::ScheduleDebounce(d) => {
+                        let tx = internal_tx.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(d).await;
+                            tx.send(Input::DebounceExpired).await.ok();
+                        });
+                    }
+                    Output::ScheduleBackoff(d) => {
+                        let tx = internal_tx.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(d).await;
+                            tx.send(Input::BackoffTick).await.ok();
+                        });
+                    }
+                    Output::AttemptConnect(target) => {
+                        let tx = internal_tx.clone();
+                        let runner = runner.clone();
+                        tokio::spawn(async move {
+                            let serial = target.serial();
+                            let res = runner.run("adb", &["connect", &serial]).await;
+                            let ok = match res {
+                                Ok(o) => {
+                                    o.status == 0
+                                        && !o.stdout.contains("failed to connect")
+                                        && !o.stdout.contains("cannot connect")
+                                }
+                                Err(_) => false,
+                            };
+                            tx.send(Input::ConnectResult { ok }).await.ok();
+                        });
+                    }
+                }
+            }
+        }
+    });
+    ManagerHandle { input_tx, task }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -289,5 +357,77 @@ mod tests {
         };
         let (_, outs) = transition(s, Input::ForceReconnect);
         assert!(matches!(&outs[0], Output::AttemptConnect(_)));
+    }
+
+    use crate::runner::{CommandOutput, MockRunner};
+    #[allow(unused_imports)]
+    use tokio::time::{advance, pause, sleep, Duration as TDuration};
+
+    fn arc_mock() -> Arc<MockRunner> {
+        Arc::new(MockRunner::new())
+    }
+
+    async fn drain(rx: &mut mpsc::Receiver<DeviceEvent>) -> Vec<DeviceEvent> {
+        let mut v = Vec::new();
+        while let Ok(Some(e)) = tokio::time::timeout(TDuration::from_millis(50), rx.recv()).await {
+            v.push(e);
+        }
+        v
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn spawn_emits_reconnecting_after_debounce_and_first_backoff() {
+        let runner = arc_mock();
+        runner.expect("adb connect 1.2.3.4:5555", CommandOutput {
+            stdout: "failed to connect to 1.2.3.4:5555\n".into(),
+            stderr: String::new(),
+            status: 0,
+        });
+
+        let (out_tx, mut out_rx) = mpsc::channel(16);
+        let h = spawn(
+            ManagerSetup {
+                target: WifiTarget { ip: "1.2.3.4".into(), port: 5555 },
+                device_name: "P".into(),
+            },
+            runner.clone(),
+            out_tx,
+        );
+
+        h.input_tx.send(Input::DeviceLost { serial: "1.2.3.4:5555".into() }).await.unwrap();
+        // Advance past debounce (500 ms)
+        advance(TDuration::from_millis(600)).await;
+        // Advance past first backoff (1 s) so connect runs and ConnectResult comes back
+        advance(TDuration::from_secs(2)).await;
+        // Yield so spawned tasks can run.
+        sleep(TDuration::from_millis(1)).await;
+
+        let evs = drain(&mut out_rx).await;
+        let reconnecting_count = evs.iter().filter(|e| matches!(e, DeviceEvent::WifiReconnecting { .. })).count();
+        assert!(reconnecting_count >= 1, "expected at least one WifiReconnecting, got {evs:?}");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn spawn_discovered_during_debounce_cancels_reconnect() {
+        let runner = arc_mock();
+        let (out_tx, mut out_rx) = mpsc::channel(16);
+        let h = spawn(
+            ManagerSetup {
+                target: WifiTarget { ip: "1.2.3.4".into(), port: 5555 },
+                device_name: "P".into(),
+            },
+            runner,
+            out_tx,
+        );
+
+        h.input_tx.send(Input::DeviceLost { serial: "1.2.3.4:5555".into() }).await.unwrap();
+        advance(TDuration::from_millis(200)).await;
+        h.input_tx.send(Input::DeviceDiscovered { serial: "1.2.3.4:5555".into() }).await.unwrap();
+        advance(TDuration::from_millis(800)).await;
+        sleep(TDuration::from_millis(1)).await;
+
+        let evs = drain(&mut out_rx).await;
+        assert!(evs.iter().all(|e| !matches!(e, DeviceEvent::WifiReconnecting { .. })),
+            "expected no Reconnecting after cancellation, got {evs:?}");
     }
 }
