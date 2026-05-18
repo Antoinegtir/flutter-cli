@@ -1,6 +1,8 @@
 mod build_cmd;
+mod clean_cmd;
 mod cli;
 mod devices_cmd;
+mod doctor_cmd;
 mod pub_cmd;
 mod run_cmd;
 mod test_cmd;
