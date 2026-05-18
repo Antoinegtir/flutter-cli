@@ -16,11 +16,17 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
         return match event {
             "daemon.connected" => Some(FlutterEvent::DaemonReady),
             "app.started" => {
+                // `app.started` doesn't always carry the VM URI — Flutter emits
+                // it separately as `app.debugPort` earlier in the boot. Accept
+                // either field, falling back to empty so we still surface the
+                // event (and freeze the build chronometer).
                 let params = obj.get("params")?;
-                let app_id = params.get("appId")?.as_str()?.to_string();
+                let app_id = params.get("appId").and_then(Value::as_str).unwrap_or("").to_string();
                 let uri = params.get("vmServiceUri")
                     .or_else(|| params.get("wsUri"))
-                    .and_then(Value::as_str)?.to_string();
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
                 Some(FlutterEvent::AppStarted { app_id, vm_service_uri: uri })
             }
             // Only `app.stopped` is terminal. `app.stop` is an intermediate
@@ -48,9 +54,17 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
             // (each event carries the full device JSON). We already track
             // devices ourselves via ADB and xcrun, so drop them entirely.
             "device.added" | "device.removed" | "device.changed" => None,
-            "app.debugPort" | "app.devTools" | "app.dtd" => {
-                // Connection-info events; useful but the raw JSON is huge.
-                // Summarise to a one-liner.
+            "app.debugPort" => {
+                // VM Service WebSocket URL — promote to AppStarted so consumers
+                // (chronometer freeze, VM Service connection) trigger on it.
+                let params = obj.get("params")?;
+                let app_id = params.get("appId").and_then(Value::as_str).unwrap_or("").to_string();
+                let uri = params.get("wsUri").or_else(|| params.get("uri"))
+                    .and_then(Value::as_str).unwrap_or("").to_string();
+                Some(FlutterEvent::AppStarted { app_id, vm_service_uri: uri })
+            }
+            "app.devTools" | "app.dtd" => {
+                // Connection-info side channels; summarise.
                 let params = obj.get("params");
                 let uri = params
                     .and_then(|p| p.get("wsUri").or_else(|| p.get("uri")))

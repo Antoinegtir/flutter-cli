@@ -284,6 +284,11 @@ impl AppState {
     /// untouched so the runner can also forward it to optional external
     /// handlers (e.g. a hot-reload dispatcher), without ever blocking.
     pub fn on_key(&mut self, key: fl_core::KeyEvent) {
+        // Filter-input mode: keystrokes build up the filter string.
+        if self.log_filter.is_some() {
+            self.handle_filter_key(key);
+            return;
+        }
         match key {
             fl_core::KeyEvent::Char('q') | fl_core::KeyEvent::Ctrl('c') => {
                 self.quitting = true;
@@ -300,8 +305,63 @@ impl AppState {
             fl_core::KeyEvent::Char('R') => {
                 self.show_banner(BannerKind::Info, "Hot restart requested (VM Service not yet wired)");
             }
+            fl_core::KeyEvent::Char('b') => {
+                self.show_banner(BannerKind::Info, "Toggle brightness (VM Service not yet wired)");
+            }
+            fl_core::KeyEvent::Char('p') => {
+                self.show_banner(BannerKind::Info, "Toggle debug paint (VM Service not yet wired)");
+            }
+            fl_core::KeyEvent::Char('o') => {
+                self.show_banner(BannerKind::Info, "Toggle platform (VM Service not yet wired)");
+            }
             fl_core::KeyEvent::Char('c') => {
                 self.logs.clear();
+                self.show_banner(BannerKind::Info, "Logs cleared");
+            }
+            fl_core::KeyEvent::Char('/') => {
+                self.log_filter = Some(String::new());
+                self.show_persistent_banner(BannerKind::Info, "Filter: (type, Enter to apply, Esc to cancel)");
+            }
+            _ => {}
+        }
+    }
+
+    fn handle_filter_key(&mut self, key: fl_core::KeyEvent) {
+        match key {
+            fl_core::KeyEvent::Esc => {
+                self.log_filter = None;
+                self.clear_persistent_banner();
+                self.show_banner(BannerKind::Info, "Filter cancelled");
+            }
+            fl_core::KeyEvent::Enter => {
+                self.clear_persistent_banner();
+                let pat = self.log_filter.clone().unwrap_or_default();
+                if pat.is_empty() {
+                    self.log_filter = None;
+                    self.show_banner(BannerKind::Info, "Filter cleared");
+                } else {
+                    self.show_banner(BannerKind::Success, &format!("Filter: {pat}"));
+                }
+            }
+            fl_core::KeyEvent::Backspace => {
+                if let Some(f) = self.log_filter.as_mut() {
+                    f.pop();
+                    let f_clone = f.clone();
+                    self.show_persistent_banner(
+                        BannerKind::Info,
+                        &format!("Filter: {f_clone}"),
+                    );
+                }
+            }
+            fl_core::KeyEvent::Char(c) => {
+                if let Some(f) = self.log_filter.as_mut() {
+                    f.push(c);
+                    let f_clone = f.clone();
+                    self.show_persistent_banner(
+                        BannerKind::Info,
+                        &format!("Filter: {f_clone}"),
+                    );
+                }
             }
             _ => {}
         }
