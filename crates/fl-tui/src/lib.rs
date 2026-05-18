@@ -18,4 +18,5 @@ pub use splash::Splash;
 pub use theme::Theme;
 pub use view::View;
 pub use views::build_view::BuildView;
+pub use views::pub_view::{PubMode, PubView};
 pub use views::test_view::TestView;

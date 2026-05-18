@@ -62,3 +62,27 @@ mod tests {
         }
     }
 }
+
+// Placeholder for Task 13 — full sub-command surface defined in Task 16.
+#[derive(Debug, Clone)]
+pub enum PubSub {
+    Get,
+    Upgrade,
+    Outdated,
+    Deps,
+    Add { package: String },
+    Remove { package: String },
+}
+
+impl PubSub {
+    pub fn label(&self) -> &'static str {
+        match self {
+            PubSub::Get => "get",
+            PubSub::Upgrade => "upgrade",
+            PubSub::Outdated => "outdated",
+            PubSub::Deps => "deps",
+            PubSub::Add { .. } => "add",
+            PubSub::Remove { .. } => "remove",
+        }
+    }
+}
