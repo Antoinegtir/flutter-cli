@@ -1,0 +1,8 @@
+[{"event":"daemon.connected","params":{"version":"0.6.1"}}]
+[{"event":"app.progress","params":{"id":"build","message":"Building APK","finished":false}}]
+SLEEP 0.1
+[{"event":"app.progress","params":{"id":"build","message":"Build done","finished":true}}]
+[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]
+[{"event":"daemon.logMessage","params":{"level":"info","message":"App is running"}}]
+SLEEP 0.1
+[{"event":"app.stop","params":{"exitCode":0}}]

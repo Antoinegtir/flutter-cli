@@ -1,0 +1,31 @@
+#!/bin/sh
+# Faux adb. Reads scenario file at $FL_ADB_FIXTURE; default behavior otherwise.
+case "$1" in
+  devices)
+    if [ -f "$FL_ADB_FIXTURE_DEVICES" ]; then
+      cat "$FL_ADB_FIXTURE_DEVICES"
+    else
+      printf "List of devices attached\nABC123\tdevice usb:1-2 product:husky model:Pixel_8 device:husky transport_id:1\n"
+    fi
+    ;;
+  -s)
+    case "$3" in
+      tcpip) echo "restarting in TCP mode port: $4" ;;
+      shell)
+        if [ "$4" = "ip" ]; then
+          echo "    inet 192.168.1.42/24 brd 192.168.1.255 scope global wlan0"
+        elif [ "$4" = "getprop" ]; then
+          echo "14"
+        elif [ "$4" = "dumpsys" ]; then
+          echo "  level: 87"
+        else
+          echo ""
+        fi
+        ;;
+    esac
+    ;;
+  connect)
+    echo "connected to $2"
+    ;;
+esac
+exit 0

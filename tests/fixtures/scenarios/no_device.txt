@@ -1,0 +1,3 @@
+[{"event":"daemon.connected","params":{"version":"0.6.1"}}]
+[{"event":"daemon.logMessage","params":{"level":"error","message":"No supported devices connected."}}]
+[{"event":"app.stop","params":{"exitCode":1}}]

@@ -1,0 +1,23 @@
+#!/bin/sh
+# Faux flutter --machine emitter. Each scenario file is read line-by-line, with optional sleep prefixes.
+SCENARIO="${FL_FLUTTER_SCENARIO:-}"
+if [ -z "$SCENARIO" ] || [ ! -f "$SCENARIO" ]; then
+  # Default: connected, started, then stopped after a short pause.
+  echo '[{"event":"daemon.connected","params":{"version":"0.6.1"}}]'
+  echo '[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]'
+  sleep 0.2
+  echo '[{"event":"app.stop","params":{"exitCode":0}}]'
+  exit 0
+fi
+while IFS= read -r line; do
+  case "$line" in
+    "SLEEP "*)
+      sleep "$(echo "$line" | awk '{print $2}')"
+      ;;
+    "")
+      ;;
+    *)
+      echo "$line"
+      ;;
+  esac
+done < "$SCENARIO"
