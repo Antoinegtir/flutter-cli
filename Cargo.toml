@@ -2,16 +2,11 @@
 resolver = "2"
 members = [
     "crates/fl-core",
-    "crates/fl-adb",
-    "crates/fl-flutter",
-    "crates/fl-vmservice",
-    "crates/fl-tui",
-    "crates/fl-cli",
 ]
 
 [workspace.package]
 edition = "2021"
-rust-version = "1.75"
+rust-version = "1.79"
 license = "MIT"
 authors = ["Antoine Gonthier"]
 
