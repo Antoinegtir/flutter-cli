@@ -1,0 +1,5 @@
+Resolving dependencies...
++ shiny_pkg 1.0.0
+- legacy_pkg
+> updated_pkg 2.0.0 (was 1.9.0)
+Got dependencies!

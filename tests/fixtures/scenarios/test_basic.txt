@@ -1,0 +1,6 @@
+{"type":"suite","suite":{"id":1,"path":"test/example_test.dart"}}
+{"type":"testStart","time":1,"test":{"id":1,"name":"loads home"}}
+{"type":"testDone","testID":1,"result":"success","time":42,"name":"loads home"}
+{"type":"testStart","time":50,"test":{"id":2,"name":"shows error"}}
+{"type":"testDone","testID":2,"result":"failure","time":100,"name":"shows error"}
+{"type":"done","success":false,"time":2000}

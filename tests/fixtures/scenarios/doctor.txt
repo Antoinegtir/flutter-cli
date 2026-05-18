@@ -1,0 +1,5 @@
+[✓] Flutter (Channel stable, 3.22.2)
+    • Flutter version 3.22.2
+[!] Android Studio (not installed)
+
+Doctor summary (1 issue found.)

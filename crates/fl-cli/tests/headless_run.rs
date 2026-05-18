@@ -115,3 +115,92 @@ fn headless_wifi_drop_emits_reconnecting_and_reconnected() {
     assert!(stdout.contains("AppStarted"), "missing AppStarted:\n{stdout}");
     assert!(stdout.contains("Stopped"), "missing Stopped:\n{stdout}");
 }
+
+fn run_fl_with_env(args: &[&str], envs: &[(&str, &std::path::Path)]) -> String {
+    let exe = workspace_root().join("target/debug/fl").canonicalize().expect("fl built");
+    let fixture_bin = fixtures().join("bin").canonicalize().expect("fixtures bin");
+    let path = format!(
+        "{}:{}",
+        fixture_bin.display(),
+        std::env::var("PATH").unwrap_or_default()
+    );
+    let mut cmd = Command::new(&exe);
+    cmd.args(args).env("PATH", path).env("FL_HEADLESS", "1").env_remove("FLUTTER_ROOT");
+    for (k, p) in envs {
+        cmd.env(k, p.canonicalize().expect("env path"));
+    }
+    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let out = cmd.output().expect("spawn fl");
+    String::from_utf8_lossy(&out.stdout).into_owned()
+}
+
+fn pubspec_in_workspace() -> PathBuf {
+    // tests need a real pubspec.yaml for pre-checks in build/test/pub/clean.
+    let p = workspace_root().join("target/test-pubspec");
+    std::fs::create_dir_all(&p).unwrap();
+    std::fs::write(p.join("pubspec.yaml"), "name: dummy\n").unwrap();
+    std::fs::create_dir_all(p.join("test")).unwrap();
+    p
+}
+
+#[test]
+fn headless_build_emits_progress_and_built() {
+    ensure_binary_built();
+    let pubspec = pubspec_in_workspace();
+    let scenario = fixtures().join("scenarios/build_apk.txt");
+    let out = run_fl_with_env(
+        &["build", "apk", "--project", pubspec.to_str().unwrap()],
+        &[("FL_FLUTTER_BUILD_SCENARIO", &scenario)],
+    );
+    assert!(out.contains("Progress"), "missing progress events:\n{out}");
+    assert!(out.contains("Built"), "missing Built line:\n{out}");
+}
+
+#[test]
+fn headless_test_emits_test_events() {
+    ensure_binary_built();
+    let pubspec = pubspec_in_workspace();
+    let scenario = fixtures().join("scenarios/test_basic.txt");
+    let out = run_fl_with_env(
+        &["test", "--project", pubspec.to_str().unwrap()],
+        &[("FL_FLUTTER_TEST_SCENARIO", &scenario)],
+    );
+    assert!(out.contains("TestStarted"), "missing TestStarted:\n{out}");
+    assert!(out.contains("AllDone"), "missing AllDone:\n{out}");
+}
+
+#[test]
+fn headless_pub_get_emits_got_event() {
+    ensure_binary_built();
+    let pubspec = pubspec_in_workspace();
+    let scenario = fixtures().join("scenarios/pub_get.txt");
+    let out = run_fl_with_env(
+        &["pub", "get", "--project", pubspec.to_str().unwrap()],
+        &[("FL_FLUTTER_PUB_SCENARIO", &scenario)],
+    );
+    assert!(out.contains("Got"), "missing Got event:\n{out}");
+    assert!(out.contains("shiny_pkg"), "missing added package:\n{out}");
+}
+
+#[test]
+fn headless_doctor_emits_sections() {
+    ensure_binary_built();
+    let scenario = fixtures().join("scenarios/doctor.txt");
+    let out = run_fl_with_env(
+        &["doctor"],
+        &[("FL_FLUTTER_DOCTOR_SCENARIO", &scenario)],
+    );
+    assert!(out.contains("Section"), "missing Section event:\n{out}");
+    assert!(out.contains("Done"), "missing Done event:\n{out}");
+}
+
+#[test]
+fn headless_clean_completes_with_zero_freed() {
+    ensure_binary_built();
+    let pubspec = pubspec_in_workspace();
+    let out = run_fl_with_env(
+        &["clean", "--project", pubspec.to_str().unwrap()],
+        &[],
+    );
+    assert!(out.contains("Done"), "missing Done event:\n{out}");
+}
