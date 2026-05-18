@@ -76,10 +76,12 @@ impl TuiRunner {
                 }
                 Some(Ok(term_ev)) = events.next() => {
                     if let Some(k) = map_key(term_ev) {
-                        if matches!(k, FlKey::Char('q') | FlKey::Ctrl('c')) {
-                            state.quitting = true;
-                        }
-                        keys_tx.send(k).await.ok();
+                        // Apply locally first (handles q/v/r/R/c).
+                        state.on_key(k);
+                        // Forward to any external handler with a non-blocking
+                        // try_send so we never freeze the loop when no consumer
+                        // is reading.
+                        let _ = keys_tx.try_send(k);
                     }
                 }
                 Some(ev) = rx.recv() => {

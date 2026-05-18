@@ -279,6 +279,34 @@ impl AppState {
         self.last_reload_at = Some(Instant::now());
     }
 
+    /// Single place where every keypress is interpreted. Used by both the
+    /// `View` impl and the legacy `TuiRunner::run` path. Returns the key
+    /// untouched so the runner can also forward it to optional external
+    /// handlers (e.g. a hot-reload dispatcher), without ever blocking.
+    pub fn on_key(&mut self, key: fl_core::KeyEvent) {
+        match key {
+            fl_core::KeyEvent::Char('q') | fl_core::KeyEvent::Ctrl('c') => {
+                self.quitting = true;
+            }
+            fl_core::KeyEvent::Char('v') => {
+                self.verbose = !self.verbose;
+                let msg = if self.verbose { "verbose: ON" } else { "verbose: OFF" };
+                self.show_banner(BannerKind::Info, msg);
+            }
+            fl_core::KeyEvent::Char('r') => {
+                self.flash_reload();
+                self.show_banner(BannerKind::Info, "Hot reload requested (VM Service not yet wired)");
+            }
+            fl_core::KeyEvent::Char('R') => {
+                self.show_banner(BannerKind::Info, "Hot restart requested (VM Service not yet wired)");
+            }
+            fl_core::KeyEvent::Char('c') => {
+                self.logs.clear();
+            }
+            _ => {}
+        }
+    }
+
     pub fn reload_flash_alpha(&self) -> f32 {
         match self.last_reload_at {
             Some(t) => {
@@ -309,17 +337,7 @@ impl crate::view::View for AppState {
     }
 
     fn handle_key(&mut self, key: fl_core::KeyEvent) -> Option<Self::Input> {
-        match key {
-            fl_core::KeyEvent::Char('q') | fl_core::KeyEvent::Ctrl('c') => {
-                self.quitting = true;
-            }
-            fl_core::KeyEvent::Char('v') => {
-                self.verbose = !self.verbose;
-                let msg = if self.verbose { "verbose: ON" } else { "verbose: OFF" };
-                self.show_banner(BannerKind::Info, msg);
-            }
-            _ => {}
-        }
+        self.on_key(key);
         None
     }
 
