@@ -39,7 +39,8 @@ pub struct Banner {
     pub kind: BannerKind,
     pub message: String,
     pub shown_at: Instant,
-    pub duration: Duration,
+    /// `None` means the banner stays on screen until explicitly cleared.
+    pub duration: Option<Duration>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -174,14 +175,33 @@ impl AppState {
             kind,
             message: message.into(),
             shown_at: Instant::now(),
-            duration: Duration::from_millis(3000),
+            duration: Some(Duration::from_millis(3000)),
         });
+    }
+
+    pub fn show_persistent_banner(&mut self, kind: BannerKind, message: &str) {
+        self.banner = Some(Banner {
+            kind,
+            message: message.into(),
+            shown_at: Instant::now(),
+            duration: None,
+        });
+    }
+
+    pub fn clear_persistent_banner(&mut self) {
+        if let Some(b) = &self.banner {
+            if b.duration.is_none() {
+                self.banner = None;
+            }
+        }
     }
 
     fn expire_banner(&mut self) {
         if let Some(b) = &self.banner {
-            if b.shown_at.elapsed() >= b.duration {
-                self.banner = None;
+            if let Some(d) = b.duration {
+                if b.shown_at.elapsed() >= d {
+                    self.banner = None;
+                }
             }
         }
     }
@@ -266,5 +286,27 @@ mod tests {
         let mut s = AppState::new("a".into(), "d".into());
         s.apply(AppEvent::Device(DeviceEvent::UsbDisconnected { serial: "X".into() }));
         assert!(s.banner.is_some());
+    }
+
+    #[test]
+    fn persistent_banner_does_not_expire() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.show_persistent_banner(BannerKind::Warn, "stays put");
+        s.apply(AppEvent::Tick);
+        s.apply(AppEvent::Tick);
+        assert!(s.banner.is_some());
+        assert!(s.banner.as_ref().unwrap().duration.is_none());
+    }
+
+    #[test]
+    fn clear_persistent_banner_only_clears_persistent() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.show_banner(BannerKind::Info, "transient");
+        s.clear_persistent_banner();
+        assert!(s.banner.is_some(), "transient banner should survive clear_persistent_banner");
+
+        s.show_persistent_banner(BannerKind::Warn, "sticky");
+        s.clear_persistent_banner();
+        assert!(s.banner.is_none(), "persistent banner should be cleared");
     }
 }
