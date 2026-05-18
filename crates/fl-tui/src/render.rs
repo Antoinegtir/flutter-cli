@@ -74,11 +74,12 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     block.render(area, buf);
 
     // Status label that shimmers while something is happening.
-    // `Building…` during compile; `Refresh…` briefly after a hot reload.
-    let status_text: Option<&'static str> = if state.compile_finished.is_none() {
-        Some("Building…")
-    } else if state.reload_flash_alpha() > 0.05 {
+    // `Refresh…` takes precedence over `Building…` so the user gets visual
+    // confirmation immediately when they hit r/R, even mid-build.
+    let status_text: Option<&'static str> = if state.reload_flash_alpha() > 0.05 {
         Some("Refresh…")
+    } else if state.compile_finished.is_none() {
+        Some("Building…")
     } else {
         None
     };
