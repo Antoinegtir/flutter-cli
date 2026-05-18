@@ -319,9 +319,29 @@ pub async fn run_multi(
 }
 
 /// Print everything we know after exiting the TUI so the user can see why
-/// `fl run` ended — full log buffer + final session states.
+/// `fl run` ended. Error/warn lines are surfaced at the top in a dedicated
+/// "Reason for exit" section so the user doesn't have to scroll through
+/// hundreds of debug lines to find the actual failure.
 fn dump_exit_summary(state: &AppState) {
+    let errors: Vec<_> = state
+        .logs
+        .iter()
+        .filter(|l| matches!(l.level, fl_core::LogLevel::Error | fl_core::LogLevel::Warn))
+        .collect();
+
     eprintln!();
+    if !errors.is_empty() {
+        eprintln!("=== Errors / warnings ({}) ===", errors.len());
+        for line in &errors {
+            let lvl = match line.level {
+                fl_core::LogLevel::Warn => "WARN ",
+                _ => "ERROR",
+            };
+            eprintln!("{lvl} {}", line.message);
+        }
+        eprintln!();
+    }
+
     eprintln!("=== Sessions on exit ===");
     if state.active_sessions.is_empty() {
         eprintln!("(none)");
@@ -334,7 +354,7 @@ fn dump_exit_summary(state: &AppState) {
         }
     }
     eprintln!();
-    eprintln!("=== Last {} log lines ===", state.logs.len());
+    eprintln!("=== Full log ({} lines) ===", state.logs.len());
     for line in &state.logs {
         let lvl = match line.level {
             fl_core::LogLevel::Trace => "TRACE",
