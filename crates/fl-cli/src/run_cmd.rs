@@ -11,7 +11,7 @@ use std::sync::Arc;
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 
-pub async fn run(project: Option<PathBuf>, device: Option<String>, no_wifi: bool) -> anyhow::Result<()> {
+pub async fn run(project: Option<PathBuf>, device: Option<String>, no_wifi: bool, mode: fl_core::BuildMode) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
     let app_name = project
         .file_name()
@@ -124,8 +124,14 @@ pub async fn run(project: Option<PathBuf>, device: Option<String>, no_wifi: bool
     }
 
     let (flutter_tx, mut flutter_rx) = mpsc::channel::<FlutterEvent>(64);
+    let mode_flag = mode.flutter_flag();
+    let extra: Vec<&str> = if matches!(mode, fl_core::BuildMode::Debug) {
+        Vec::new()  // debug is implicit for `flutter run`
+    } else {
+        vec![mode_flag]
+    };
     let _daemon: Arc<Mutex<Option<FlutterDaemon>>> = Arc::new(Mutex::new(Some(
-        FlutterDaemon::spawn(&flutter, &project, &target_serial, flutter_tx).await?,
+        FlutterDaemon::spawn(&flutter, &project, &target_serial, &extra, flutter_tx).await?,
     )));
 
     {

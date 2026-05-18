@@ -20,11 +20,14 @@ impl FlutterDaemon {
         flutter: &Path,
         project_dir: &Path,
         device_id: &str,
+        extra_args: &[&str],
         tx: Sender<FlutterEvent>,
     ) -> anyhow::Result<Self> {
+        let mut args: Vec<&str> = vec!["run", "--machine", "-d", device_id];
+        args.extend_from_slice(extra_args);
         let mut child = Command::new(flutter)
             .current_dir(project_dir)
-            .args(["run", "--machine", "-d", device_id])
+            .args(&args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .stdin(Stdio::piped())
@@ -116,7 +119,7 @@ echo '[{"event":"app.stop","params":{"exitCode":0}}]'
         let exe = write_fake_flutter(&dir);
 
         let (tx, mut rx) = mpsc::channel(16);
-        let mut daemon = FlutterDaemon::spawn(&exe, &dir, "fake-device", tx).await.unwrap();
+        let mut daemon = FlutterDaemon::spawn(&exe, &dir, "fake-device", &[], tx).await.unwrap();
         let _ = daemon.wait().await;
 
         let mut got = Vec::new();

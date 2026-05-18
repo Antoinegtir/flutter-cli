@@ -25,6 +25,7 @@ pub enum Cmd {
         /// Disable USB→WiFi pre-pairing.
         #[arg(long)]
         no_wifi: bool,
+        #[arg(long, value_enum, default_value_t = fl_core::BuildMode::Debug)] mode: fl_core::BuildMode,
     },
 }
 
@@ -43,10 +44,20 @@ mod tests {
     fn parses_run_with_options() {
         let c = Cli::parse_from(["fl", "run", "--device", "1.2.3.4:5555", "--no-wifi"]);
         match c.cmd {
-            Cmd::Run { device, no_wifi, .. } => {
+            Cmd::Run { device, no_wifi, mode, .. } => {
                 assert_eq!(device.as_deref(), Some("1.2.3.4:5555"));
                 assert!(no_wifi);
+                assert_eq!(mode, fl_core::BuildMode::Debug);
             }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_run_with_explicit_mode() {
+        let c = Cli::parse_from(["fl", "run", "--mode", "release"]);
+        match c.cmd {
+            Cmd::Run { mode, .. } => assert_eq!(mode, fl_core::BuildMode::Release),
             _ => panic!(),
         }
     }

@@ -29,6 +29,6 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Devices => devices_cmd::run().await,
-        Cmd::Run { project, device, no_wifi } => run_cmd::run(project, device, no_wifi).await,
+        Cmd::Run { project, device, no_wifi, mode } => run_cmd::run(project, device, no_wifi, mode).await,
     }
 }
