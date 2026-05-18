@@ -3,15 +3,14 @@ source: crates/fl-tui/src/render.rs
 expression: dump
 ---
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ ▟▛▘   fl ── my_app · debug · no device                                                           │
-│▝▜▙                                                                                               │
-│  ▀▘   ⏱  00:00                                                                                   │
+│ fl ── my_app · debug · no device                                                         ⏱ 00:00 │
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
 ┌ Logs ────────────────────────────────────────────────────┐┌ Performance ─────────────────────────┐
 │INFO  App started                                         ││FPS                              0.0  │
 │                                                          ││Frame  ui  0.0ms  raster  0.0ms       │
 │                                                          ││Memory                             0MB│
 │                                                          ││Rebuilds 0/s                          │
+│                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
@@ -24,5 +23,6 @@ expression: dump
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
+│                                                          ││                                      │
 └──────────────────────────────────────────────────────────┘└──────────────────────────────────────┘
- [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [q] quit
+ [r] reload  [R] restart  [b] theme  [v] verbose  [q] quit

@@ -18,10 +18,26 @@ pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme
     block.render(area, buf);
 
     let filter = state.log_filter.as_deref();
-    let visible: Vec<&LogLine> = state.logs.iter().filter(|l| match filter {
-        Some(f) => l.message.contains(f),
-        None => true,
-    }).collect();
+    let verbose = state.verbose;
+    let visible: Vec<&LogLine> = state
+        .logs
+        .iter()
+        .filter(|l| {
+            // Hide DEBUG/TRACE unless verbose is on.
+            if !verbose
+                && matches!(
+                    l.level,
+                    fl_core::LogLevel::Debug | fl_core::LogLevel::Trace
+                )
+            {
+                return false;
+            }
+            match filter {
+                Some(f) => l.message.contains(f),
+                None => true,
+            }
+        })
+        .collect();
 
     let take = inner.height as usize;
     let slice: Vec<&LogLine> = visible.iter().rev().take(take).rev().copied().collect();
@@ -43,10 +59,25 @@ pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme
 }
 
 pub fn measure_visible(state: &AppState) -> usize {
-    state.logs.iter().filter(|l| match state.log_filter.as_deref() {
-        Some(f) => l.message.contains(f),
-        None => true,
-    }).count()
+    let verbose = state.verbose;
+    state
+        .logs
+        .iter()
+        .filter(|l| {
+            if !verbose
+                && matches!(
+                    l.level,
+                    fl_core::LogLevel::Debug | fl_core::LogLevel::Trace
+                )
+            {
+                return false;
+            }
+            match state.log_filter.as_deref() {
+                Some(f) => l.message.contains(f),
+                None => true,
+            }
+        })
+        .count()
 }
 
 #[cfg(test)]

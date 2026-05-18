@@ -47,6 +47,11 @@ pub struct AppState {
     pub banner: Option<Banner>,
     pub last_reload_at: Option<Instant>,
     pub started_at: Instant,
+    /// Filled in when the first session reports AppStarted. Once set, the
+    /// chronometer freezes at this duration instead of ticking live.
+    pub compile_finished: Option<Duration>,
+    /// If false, DEBUG log lines are hidden in the panel. Toggle with `v`.
+    pub verbose: bool,
     pub quitting: bool,
 }
 
@@ -85,13 +90,16 @@ impl AppState {
             banner: None,
             last_reload_at: None,
             started_at: Instant::now(),
+            compile_finished: None,
+            verbose: false,
             quitting: false,
         }
     }
 
-    /// Wallclock duration since `fl run` started this AppState.
+    /// Duration to display on the chronometer. Live until `compile_finished`
+    /// is recorded, then frozen at that value.
     pub fn elapsed(&self) -> Duration {
-        self.started_at.elapsed()
+        self.compile_finished.unwrap_or_else(|| self.started_at.elapsed())
     }
 
     pub fn apply(&mut self, ev: AppEvent) {
@@ -181,6 +189,10 @@ impl AppState {
             FlutterEvent::DaemonReady => self.push_log(LogLevel::Debug, "daemon ready".into()),
             FlutterEvent::AppStarted { vm_service_uri, .. } => {
                 self.vm_service_uri = Some(vm_service_uri);
+                if self.compile_finished.is_none() {
+                    self.compile_finished = Some(self.started_at.elapsed());
+                    self.show_banner(BannerKind::Success, "App started — build done");
+                }
             }
             FlutterEvent::Log { level, message } => self.push_log(level, message),
             FlutterEvent::Progress { message, finished, .. } => {
@@ -300,10 +312,15 @@ impl crate::view::View for AppState {
         match key {
             fl_core::KeyEvent::Char('q') | fl_core::KeyEvent::Ctrl('c') => {
                 self.quitting = true;
-                None
             }
-            _ => None,
+            fl_core::KeyEvent::Char('v') => {
+                self.verbose = !self.verbose;
+                let msg = if self.verbose { "verbose: ON" } else { "verbose: OFF" };
+                self.show_banner(BannerKind::Info, msg);
+            }
+            _ => {}
         }
+        None
     }
 
     fn tick(&mut self, _dt: std::time::Duration) {

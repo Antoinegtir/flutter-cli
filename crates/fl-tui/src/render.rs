@@ -9,21 +9,14 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [w] wifi  [/] filter  [c] clear  [?] help  [q] quit ";
-const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [q] quit ";
-const FOOTER_SHORT: &str = " r reload · R restart · q quit ";
+const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [w] wifi  [v] verbose  [/] filter  [c] clear  [q] quit ";
+const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [v] verbose  [q] quit ";
+const FOOTER_SHORT: &str = " r reload · R restart · v verbose · q quit ";
 
 const MIN_WIDTH: u16 = 50;
-const MIN_HEIGHT: u16 = 14;
+const MIN_HEIGHT: u16 = 12;
 const NARROW_WIDTH: u16 = 90;
-const HEADER_HEIGHT: u16 = 5;
-
-// Stylised Flutter "F" mark, 3 rows × 5 cols. Coloured cyan to match Flutter brand.
-const FLUTTER_LOGO: &[&str] = &[
-    " ▟▛▘ ",
-    "▝▜▙  ",
-    "  ▀▘ ",
-];
+const HEADER_HEIGHT: u16 = 3;
 
 pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
@@ -65,6 +58,8 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         n => format!("{n} devices"),
     };
     let elapsed = format_elapsed(state.elapsed());
+    let chrono_icon = if state.compile_finished.is_some() { '✓' } else { '⏱' };
+    let chrono_color = if state.compile_finished.is_some() { theme.success } else { theme.fg };
     let alpha = state.reload_flash_alpha();
     let bg = if alpha > 0.0 {
         lerp(theme.bg, theme.success, alpha * 0.4)
@@ -78,65 +73,31 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     let inner = block.inner(area);
     block.render(area, buf);
 
-    // 3 rows inside (HEADER_HEIGHT 5 - 2 borders). Layout = logo (5 cols)
-    // + title block (rest) horizontally.
+    // Single-row header: title on the left, chronometer right-aligned.
+    let chrono_text = format!("{chrono_icon} {elapsed}");
+    let chrono_width = chrono_text.chars().count() as u16 + 2; // padding
+    let title_width = inner.width.saturating_sub(chrono_width);
+
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(6), Constraint::Min(10)])
+        .constraints([Constraint::Length(title_width), Constraint::Length(chrono_width)])
         .split(inner);
-    render_logo(cols[0], buf, theme, bg);
-    render_header_text(cols[1], buf, theme, bg, state, &device, &elapsed);
-}
 
-fn render_logo(area: Rect, buf: &mut Buffer, theme: &Theme, bg: ratatui::style::Color) {
-    let lines: Vec<Line> = FLUTTER_LOGO
-        .iter()
-        .map(|row| {
-            Line::styled(
-                (*row).to_string(),
-                Style::default().fg(theme.cyan).bg(bg),
-            )
-        })
-        .collect();
-    Paragraph::new(lines).render(area, buf);
-}
-
-fn render_header_text(
-    area: Rect,
-    buf: &mut Buffer,
-    theme: &Theme,
-    bg: ratatui::style::Color,
-    state: &AppState,
-    device: &str,
-    elapsed: &str,
-) {
-    // Row 0: app · mode · device  (truncated to fit)
-    // Row 1: (blank — keeps the logo centered vertically)
-    // Row 2: ⏱ HH:MM:SS  in accent
-    let row0 = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Length(1),
-            Constraint::Length(1),
-            Constraint::Length(1),
-        ])
-        .split(area);
-
-    let title = format!(" fl ── {} · {} · {} ", state.app_name, state.mode, device);
-    let title = truncate_to_width(&title, area.width as usize);
+    let title = format!(" fl ── {} · {} · {}", state.app_name, state.mode, device);
+    let title = truncate_to_width(&title, cols[0].width as usize);
     Paragraph::new(Line::styled(
         title,
         Style::default().fg(theme.accent).bg(bg)
             .add_modifier(ratatui::style::Modifier::BOLD),
     ))
-    .render(row0[0], buf);
+    .render(cols[0], buf);
 
-    let chrono = format!(" ⏱  {elapsed}");
     Paragraph::new(Line::styled(
-        chrono,
-        Style::default().fg(theme.fg).bg(bg),
+        format!("{chrono_text} "),
+        Style::default().fg(chrono_color).bg(bg),
     ))
-    .render(row0[2], buf);
+    .alignment(ratatui::layout::Alignment::Right)
+    .render(cols[1], buf);
 }
 
 fn format_elapsed(d: std::time::Duration) -> String {
@@ -318,20 +279,27 @@ mod tests {
     }
 
     #[test]
-    fn header_includes_flutter_logo_and_chrono() {
+    fn header_includes_chrono_with_running_icon() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
         let state = AppState::new("my_app".into(), "debug".into());
         render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
         let text = dump(&buf);
-        // The logo's chevron characters must be present somewhere in the header.
-        assert!(
-            text.contains('▟') || text.contains('▜'),
-            "missing Flutter logo glyph in header, got:\n{text}"
-        );
-        // The chrono icon should also appear.
         assert!(text.contains('⏱'), "missing chrono icon, got:\n{text}");
-        // Initial elapsed is 00:00.
         assert!(text.contains("00:00"), "missing elapsed time, got:\n{text}");
+    }
+
+    #[test]
+    fn header_chrono_switches_to_checkmark_after_compile_finishes() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
+        let mut state = AppState::new("my_app".into(), "debug".into());
+        state.apply(fl_core::AppEvent::Flutter(fl_core::FlutterEvent::AppStarted {
+            app_id: "x".into(),
+            vm_service_uri: "ws://x".into(),
+        }));
+        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        assert!(text.contains('✓'), "expected checkmark after AppStarted, got:\n{text}");
+        assert!(!text.contains('⏱'), "chrono running icon should be gone, got:\n{text}");
     }
 
     #[test]
