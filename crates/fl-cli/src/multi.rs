@@ -312,9 +312,40 @@ pub async fn run_multi(
     // Daemon shutdown then runs against a normal terminal, with shorter timeouts
     // and parallel execution.
     let _ = tui.restore();
+    dump_exit_summary(&state);
     eprintln!("Shutting down…");
     shutdown_sessions_fast(&sessions).await;
     result
+}
+
+/// Print everything we know after exiting the TUI so the user can see why
+/// `fl run` ended — full log buffer + final session states.
+fn dump_exit_summary(state: &AppState) {
+    eprintln!();
+    eprintln!("=== Sessions on exit ===");
+    if state.active_sessions.is_empty() {
+        eprintln!("(none)");
+    } else {
+        for s in &state.active_sessions {
+            eprintln!(
+                "  [{}] {} ({}) — {:?}",
+                s.short_name, s.display_name, s.serial, s.state
+            );
+        }
+    }
+    eprintln!();
+    eprintln!("=== Last {} log lines ===", state.logs.len());
+    for line in &state.logs {
+        let lvl = match line.level {
+            fl_core::LogLevel::Trace => "TRACE",
+            fl_core::LogLevel::Debug => "DEBUG",
+            fl_core::LogLevel::Info  => "INFO ",
+            fl_core::LogLevel::Warn  => "WARN ",
+            fl_core::LogLevel::Error => "ERROR",
+        };
+        eprintln!("{lvl} {}", line.message);
+    }
+    eprintln!();
 }
 
 /// Send `q` to every daemon in parallel, wait up to 1 s for each to exit,
