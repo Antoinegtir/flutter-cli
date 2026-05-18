@@ -48,8 +48,8 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Devices => devices_cmd::run().await,
-        Cmd::Run { project, device, all, no_picker, no_wifi, mode } => {
-            run_cmd::run(project, device, all, no_picker, no_wifi, mode).await
+        Cmd::Run { project, device, all, no_picker, no_wifi, no_tui, mode } => {
+            run_cmd::run(project, device, all, no_picker, no_wifi, no_tui, mode).await
         }
         Cmd::Build { target, project, mode } => build_cmd::run(target, project, mode).await,
         Cmd::Test { project, name } => test_cmd::run(project, name).await,

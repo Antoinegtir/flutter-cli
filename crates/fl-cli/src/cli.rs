@@ -22,6 +22,9 @@ pub enum Cmd {
         #[arg(long)] all: bool,
         #[arg(long)] no_picker: bool,
         #[arg(long)] no_wifi: bool,
+        /// Skip the dashboard and stream every event to stdout as plain text.
+        /// Useful for debugging or when piping into another tool.
+        #[arg(long, alias = "logs")] no_tui: bool,
         #[arg(long, value_enum, default_value_t = BuildMode::Debug)] mode: BuildMode,
     },
     /// Build a Flutter app for a given target.

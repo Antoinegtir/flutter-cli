@@ -203,6 +203,7 @@ pub async fn run_multi(
     all: bool,
     no_picker: bool,
     no_wifi: bool,
+    no_tui: bool,
     mode: BuildMode,
 ) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
@@ -214,7 +215,8 @@ pub async fn run_multi(
     let xcrun = fl_ios::Xcrun::new(TokioRunner);
     all_devices.extend(fl_ios::list_apple_devices(&xcrun).await);
 
-    let headless = std::env::var_os("FL_HEADLESS").is_some();
+    let plain = no_tui || std::env::var_os("FL_HEADLESS").is_some();
+    let headless_event_dump = std::env::var_os("FL_HEADLESS").is_some(); // tests want raw {ev:?}
     let chosen: Vec<String> = if !devices_arg.is_empty() {
         devices_arg
     } else if all {
@@ -222,7 +224,7 @@ pub async fn run_multi(
             return Err(anyhow!("--all specified but no devices attached"));
         }
         all_devices.iter().map(|d| d.serial.clone()).collect()
-    } else if all_devices.len() <= 1 || no_picker || headless {
+    } else if all_devices.len() <= 1 || no_picker || plain {
         all_devices.first().map(|d| vec![d.serial.clone()]).unwrap_or_default()
     } else {
         run_picker(&all_devices).await?
@@ -284,21 +286,48 @@ pub async fn run_multi(
         });
     }
 
-    if headless {
+    if plain {
         let app_name = project
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("app")
             .to_string();
         let mut state = AppState::new(app_name, "debug".into());
-        while let Some(ev) = event_rx.recv().await {
-            println!("{ev:?}");
-            state.apply(ev);
-            if !state.active_sessions.is_empty()
-                && state.active_sessions.iter().all(|s| matches!(s.state, DeviceSessionState::Stopped)) {
-                break;
+        eprintln!(
+            "fl run --no-tui · {} session{} · Ctrl-C to quit",
+            sessions.len(),
+            if sessions.len() == 1 { "" } else { "s" }
+        );
+        let started = std::time::Instant::now();
+        // Race events vs ctrl-c so the user can always abort.
+        loop {
+            tokio::select! {
+                biased;
+                _ = tokio::signal::ctrl_c() => {
+                    eprintln!("\nReceived Ctrl-C, shutting down…");
+                    break;
+                }
+                ev = event_rx.recv() => {
+                    let Some(ev) = ev else { break };
+                    if headless_event_dump {
+                        println!("{ev:?}");
+                    } else {
+                        print_event_pretty(&ev, started.elapsed());
+                    }
+                    state.apply(ev);
+                    if !state.active_sessions.is_empty()
+                        && state.active_sessions.iter().all(|s| {
+                            matches!(s.state,
+                                fl_core::DeviceSessionState::Stopped
+                              | fl_core::DeviceSessionState::Failed)
+                        })
+                    {
+                        break;
+                    }
+                }
             }
         }
+        shutdown_sessions_fast(&sessions).await;
         return Ok(());
     }
 
@@ -366,6 +395,47 @@ fn dump_exit_summary(state: &AppState) {
         eprintln!("{lvl} {}", line.message);
     }
     eprintln!();
+}
+
+/// Format an AppEvent as a single colored line on stdout for --no-tui mode.
+fn print_event_pretty(ev: &AppEvent, elapsed: std::time::Duration) {
+    let ts = format!("{:>4}.{:01}s", elapsed.as_secs(), elapsed.subsec_millis() / 100);
+    match ev {
+        AppEvent::Flutter(FlutterEvent::Log { level, message }) => {
+            let tag = match level {
+                LogLevel::Error => "\x1b[1;31mERROR\x1b[0m",
+                LogLevel::Warn  => "\x1b[1;33mWARN \x1b[0m",
+                LogLevel::Info  => "\x1b[1;36mINFO \x1b[0m",
+                LogLevel::Debug => "\x1b[90mDEBUG\x1b[0m",
+                LogLevel::Trace => "\x1b[90mTRACE\x1b[0m",
+            };
+            println!("\x1b[90m{ts}\x1b[0m {tag} {message}");
+        }
+        AppEvent::Flutter(FlutterEvent::AppStarted { app_id, vm_service_uri }) => {
+            println!(
+                "\x1b[90m{ts}\x1b[0m \x1b[1;32mSTART\x1b[0m app={app_id} vm={vm_service_uri}"
+            );
+        }
+        AppEvent::Flutter(FlutterEvent::Stopped { exit_code }) => {
+            println!(
+                "\x1b[90m{ts}\x1b[0m \x1b[1;31mSTOP \x1b[0m exit_code={exit_code:?}"
+            );
+        }
+        AppEvent::Flutter(FlutterEvent::Progress { id, message, finished }) => {
+            let mark = if *finished { "✓" } else { "…" };
+            println!("\x1b[90m{ts}\x1b[0m \x1b[1;34mPROG \x1b[0m {mark} [{id}] {message}");
+        }
+        AppEvent::Flutter(other) => {
+            println!("\x1b[90m{ts}\x1b[0m \x1b[1;36mFLU  \x1b[0m {other:?}");
+        }
+        AppEvent::Device(d) => {
+            println!("\x1b[90m{ts}\x1b[0m \x1b[1;35mDEV  \x1b[0m {d:?}");
+        }
+        AppEvent::Vm(v) => {
+            println!("\x1b[90m{ts}\x1b[0m \x1b[1;34mVM   \x1b[0m {v:?}");
+        }
+        AppEvent::Key(_) | AppEvent::Tick => {}
+    }
 }
 
 /// Send `q` to every daemon in parallel, wait up to 1 s for each to exit,

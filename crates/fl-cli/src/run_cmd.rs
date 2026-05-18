@@ -9,7 +9,8 @@ pub async fn run(
     all: bool,
     no_picker: bool,
     no_wifi: bool,
+    no_tui: bool,
     mode: BuildMode,
 ) -> anyhow::Result<()> {
-    crate::multi::run_multi(project, devices_arg, all, no_picker, no_wifi, mode).await
+    crate::multi::run_multi(project, devices_arg, all, no_picker, no_wifi, no_tui, mode).await
 }
