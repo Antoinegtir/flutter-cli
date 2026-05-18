@@ -2,6 +2,7 @@ mod build_cmd;
 mod cli;
 mod devices_cmd;
 mod run_cmd;
+mod test_cmd;
 
 use anyhow::Context;
 use clap::Parser;
