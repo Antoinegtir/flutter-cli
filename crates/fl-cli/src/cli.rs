@@ -1,6 +1,7 @@
 //! Clap definitions for the `fl` binary.
 
 use clap::{Parser, Subcommand};
+use fl_core::{BuildMode, BuildTarget};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
@@ -16,55 +17,36 @@ pub enum Cmd {
     Devices,
     /// Run a Flutter app with the `fl` dashboard. Auto-pairs USB→WiFi.
     Run {
-        /// Path to the Flutter project (defaults to cwd).
-        #[arg(short, long)]
-        project: Option<PathBuf>,
-        /// Force a specific device serial (skip auto-pair).
-        #[arg(short, long)]
-        device: Option<String>,
-        /// Disable USB→WiFi pre-pairing.
-        #[arg(long)]
-        no_wifi: bool,
-        #[arg(long, value_enum, default_value_t = fl_core::BuildMode::Debug)] mode: fl_core::BuildMode,
+        #[arg(short, long)] project: Option<PathBuf>,
+        #[arg(short, long)] device: Option<String>,
+        #[arg(long)] no_wifi: bool,
+        #[arg(long, value_enum, default_value_t = BuildMode::Debug)] mode: BuildMode,
+    },
+    /// Build a Flutter app for a given target.
+    Build {
+        #[arg(value_enum)] target: BuildTarget,
+        #[arg(short, long)] project: Option<PathBuf>,
+        #[arg(long, value_enum, default_value_t = BuildMode::Release)] mode: BuildMode,
+    },
+    /// Run flutter test with a live TUI.
+    Test {
+        #[arg(short, long)] project: Option<PathBuf>,
+        #[arg(short, long)] name: Option<String>,
+    },
+    /// flutter pub subcommands.
+    Pub {
+        #[command(subcommand)] sub: PubSub,
+        #[arg(short, long, global = true)] project: Option<PathBuf>,
+    },
+    /// flutter doctor with a TUI.
+    Doctor,
+    /// flutter clean with byte counting.
+    Clean {
+        #[arg(short, long)] project: Option<PathBuf>,
     },
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use clap::Parser;
-
-    #[test]
-    fn parses_devices_subcommand() {
-        let c = Cli::parse_from(["fl", "devices"]);
-        assert!(matches!(c.cmd, Cmd::Devices));
-    }
-
-    #[test]
-    fn parses_run_with_options() {
-        let c = Cli::parse_from(["fl", "run", "--device", "1.2.3.4:5555", "--no-wifi"]);
-        match c.cmd {
-            Cmd::Run { device, no_wifi, mode, .. } => {
-                assert_eq!(device.as_deref(), Some("1.2.3.4:5555"));
-                assert!(no_wifi);
-                assert_eq!(mode, fl_core::BuildMode::Debug);
-            }
-            _ => panic!(),
-        }
-    }
-
-    #[test]
-    fn parses_run_with_explicit_mode() {
-        let c = Cli::parse_from(["fl", "run", "--mode", "release"]);
-        match c.cmd {
-            Cmd::Run { mode, .. } => assert_eq!(mode, fl_core::BuildMode::Release),
-            _ => panic!(),
-        }
-    }
-}
-
-// Placeholder for Task 13 — full sub-command surface defined in Task 16.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Subcommand)]
 pub enum PubSub {
     Get,
     Upgrade,
@@ -84,5 +66,65 @@ impl PubSub {
             PubSub::Add { .. } => "add",
             PubSub::Remove { .. } => "remove",
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_devices_subcommand() {
+        let c = Cli::parse_from(["fl", "devices"]);
+        assert!(matches!(c.cmd, Cmd::Devices));
+    }
+
+    #[test]
+    fn parses_run_with_options() {
+        let c = Cli::parse_from(["fl", "run", "--device", "1.2.3.4:5555", "--no-wifi"]);
+        match c.cmd {
+            Cmd::Run { device, no_wifi, mode, .. } => {
+                assert_eq!(device.as_deref(), Some("1.2.3.4:5555"));
+                assert!(no_wifi);
+                assert_eq!(mode, BuildMode::Debug);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_run_with_explicit_mode() {
+        let c = Cli::parse_from(["fl", "run", "--mode", "release"]);
+        match c.cmd {
+            Cmd::Run { mode, .. } => assert_eq!(mode, BuildMode::Release),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_build_apk() {
+        let c = Cli::parse_from(["fl", "build", "apk"]);
+        match c.cmd {
+            Cmd::Build { target, mode, .. } => {
+                assert_eq!(target, BuildTarget::Apk);
+                assert_eq!(mode, BuildMode::Release);
+            }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_pub_add() {
+        let c = Cli::parse_from(["fl", "pub", "add", "http"]);
+        match c.cmd {
+            Cmd::Pub { sub: PubSub::Add { package }, .. } => assert_eq!(package, "http"),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_doctor_and_clean() {
+        assert!(matches!(Cli::parse_from(["fl", "doctor"]).cmd, Cmd::Doctor));
+        assert!(matches!(Cli::parse_from(["fl", "clean"]).cmd, Cmd::Clean { .. }));
     }
 }
