@@ -398,9 +398,12 @@ fn dump_exit_summary(state: &AppState) {
 }
 
 /// Format an AppEvent as a single colored line on stdout for --no-tui mode.
+/// Flushes stdout after writing so output is live even when piped through
+/// `tee` or redirected to a file.
 fn print_event_pretty(ev: &AppEvent, elapsed: std::time::Duration) {
+    use std::io::Write;
     let ts = format!("{:>4}.{:01}s", elapsed.as_secs(), elapsed.subsec_millis() / 100);
-    match ev {
+    let line = match ev {
         AppEvent::Flutter(FlutterEvent::Log { level, message }) => {
             let tag = match level {
                 LogLevel::Error => "\x1b[1;31mERROR\x1b[0m",
@@ -409,33 +412,32 @@ fn print_event_pretty(ev: &AppEvent, elapsed: std::time::Duration) {
                 LogLevel::Debug => "\x1b[90mDEBUG\x1b[0m",
                 LogLevel::Trace => "\x1b[90mTRACE\x1b[0m",
             };
-            println!("\x1b[90m{ts}\x1b[0m {tag} {message}");
+            format!("\x1b[90m{ts}\x1b[0m {tag} {message}")
         }
         AppEvent::Flutter(FlutterEvent::AppStarted { app_id, vm_service_uri }) => {
-            println!(
-                "\x1b[90m{ts}\x1b[0m \x1b[1;32mSTART\x1b[0m app={app_id} vm={vm_service_uri}"
-            );
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;32mSTART\x1b[0m app={app_id} vm={vm_service_uri}")
         }
         AppEvent::Flutter(FlutterEvent::Stopped { exit_code }) => {
-            println!(
-                "\x1b[90m{ts}\x1b[0m \x1b[1;31mSTOP \x1b[0m exit_code={exit_code:?}"
-            );
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;31mSTOP \x1b[0m exit_code={exit_code:?}")
         }
         AppEvent::Flutter(FlutterEvent::Progress { id, message, finished }) => {
             let mark = if *finished { "✓" } else { "…" };
-            println!("\x1b[90m{ts}\x1b[0m \x1b[1;34mPROG \x1b[0m {mark} [{id}] {message}");
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;34mPROG \x1b[0m {mark} [{id}] {message}")
         }
         AppEvent::Flutter(other) => {
-            println!("\x1b[90m{ts}\x1b[0m \x1b[1;36mFLU  \x1b[0m {other:?}");
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;36mFLU  \x1b[0m {other:?}")
         }
         AppEvent::Device(d) => {
-            println!("\x1b[90m{ts}\x1b[0m \x1b[1;35mDEV  \x1b[0m {d:?}");
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;35mDEV  \x1b[0m {d:?}")
         }
         AppEvent::Vm(v) => {
-            println!("\x1b[90m{ts}\x1b[0m \x1b[1;34mVM   \x1b[0m {v:?}");
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;34mVM   \x1b[0m {v:?}")
         }
-        AppEvent::Key(_) | AppEvent::Tick => {}
-    }
+        AppEvent::Key(_) | AppEvent::Tick => return,
+    };
+    let mut out = std::io::stdout().lock();
+    let _ = writeln!(out, "{line}");
+    let _ = out.flush();
 }
 
 /// Send `q` to every daemon in parallel, wait up to 1 s for each to exit,
