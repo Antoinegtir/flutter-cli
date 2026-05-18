@@ -50,6 +50,11 @@ pub fn render_devices(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     block.render(area, buf);
 
     let mut lines = line_for(state.active_device.as_ref(), true, theme);
+    if let Some(b) = &state.banner {
+        if b.duration.is_none() && b.message.starts_with("Reconnecting") {
+            lines.push(Line::styled(format!("  ↻ {}", b.message), theme.dimmed()));
+        }
+    }
     lines.extend(line_for(state.backup_device.as_ref(), false, theme));
     Paragraph::new(lines).render(inner, buf);
 }
@@ -97,5 +102,26 @@ mod tests {
         assert_eq!(lines.len(), 1);
         let s: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
         assert_eq!(s, "(aucun)");
+    }
+
+    #[test]
+    fn reconnecting_indicator_appears_when_persistent_banner_is_reconnecting() {
+        use crate::app::BannerKind;
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::Discovered(dev_wifi())));
+        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::WifiReconnecting { attempt: 2 }));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 6));
+        render_devices(Rect::new(0, 0, 60, 6), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        let mut full = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                full.push_str(buf.get(x, y).symbol());
+            }
+            full.push('\n');
+        }
+        assert!(full.contains("↻"), "expected reconnecting indicator, got:\n{full}");
+        assert!(full.contains("#2"));
+        // Suppress unused BannerKind import warning under all configurations.
+        let _ = BannerKind::Info;
     }
 }
