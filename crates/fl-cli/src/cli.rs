@@ -18,7 +18,9 @@ pub enum Cmd {
     /// Run a Flutter app with the `fl` dashboard. Auto-pairs USB→WiFi.
     Run {
         #[arg(short, long)] project: Option<PathBuf>,
-        #[arg(short, long)] device: Option<String>,
+        #[arg(short, long)] device: Vec<String>,
+        #[arg(long)] all: bool,
+        #[arg(long)] no_picker: bool,
         #[arg(long)] no_wifi: bool,
         #[arg(long, value_enum, default_value_t = BuildMode::Debug)] mode: BuildMode,
     },
@@ -83,11 +85,30 @@ mod tests {
     fn parses_run_with_options() {
         let c = Cli::parse_from(["fl", "run", "--device", "1.2.3.4:5555", "--no-wifi"]);
         match c.cmd {
-            Cmd::Run { device, no_wifi, mode, .. } => {
-                assert_eq!(device.as_deref(), Some("1.2.3.4:5555"));
+            Cmd::Run { device, no_wifi, mode, all, .. } => {
+                assert_eq!(device, vec!["1.2.3.4:5555".to_string()]);
                 assert!(no_wifi);
+                assert!(!all);
                 assert_eq!(mode, BuildMode::Debug);
             }
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_run_with_repeated_device() {
+        let c = Cli::parse_from(["fl", "run", "--device", "a", "--device", "b"]);
+        match c.cmd {
+            Cmd::Run { device, .. } => assert_eq!(device, vec!["a".to_string(), "b".to_string()]),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_run_with_all_flag() {
+        let c = Cli::parse_from(["fl", "run", "--all"]);
+        match c.cmd {
+            Cmd::Run { all, .. } => assert!(all),
             _ => panic!(),
         }
     }
@@ -97,6 +118,15 @@ mod tests {
         let c = Cli::parse_from(["fl", "run", "--mode", "release"]);
         match c.cmd {
             Cmd::Run { mode, .. } => assert_eq!(mode, BuildMode::Release),
+            _ => panic!(),
+        }
+    }
+
+    #[test]
+    fn parses_run_with_no_picker() {
+        let c = Cli::parse_from(["fl", "run", "--no-picker"]);
+        match c.cmd {
+            Cmd::Run { no_picker, .. } => assert!(no_picker),
             _ => panic!(),
         }
     }
