@@ -444,6 +444,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
+ "crossterm",
  "directories",
  "fl-adb",
  "fl-core",

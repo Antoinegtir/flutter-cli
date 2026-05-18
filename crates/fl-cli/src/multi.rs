@@ -297,15 +297,42 @@ pub async fn run_multi(
     let (keys_tx, _keys_rx) = mpsc::channel::<FlKey>(1);
     let result = tui.run(&mut state, &mut event_rx, keys_tx).await;
 
-    for s in &sessions {
-        let mut guard = s.daemon.lock().await;
-        if let Some(d) = guard.as_mut() {
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), d.send_quit()).await;
-            let _ = tokio::time::timeout(std::time::Duration::from_secs(3), d.wait()).await;
-        }
-    }
+    // Restore the terminal IMMEDIATELY so the user gets their shell back.
+    // Daemon shutdown then runs against a normal terminal, with shorter timeouts
+    // and parallel execution.
     let _ = tui.restore();
+    eprintln!("Shutting down…");
+    shutdown_sessions_fast(&sessions).await;
     result
+}
+
+/// Send `q` to every daemon in parallel, wait up to 1 s for each to exit,
+/// then force-kill any stragglers. Total wallclock ~1.5 s max regardless of N.
+async fn shutdown_sessions_fast(sessions: &[DeviceSession]) {
+    let quits = sessions.iter().map(|s| {
+        let daemon = s.daemon.clone();
+        async move {
+            let mut guard = daemon.lock().await;
+            if let Some(d) = guard.as_mut() {
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), d.send_quit()).await;
+            }
+        }
+    });
+    futures_util::future::join_all(quits).await;
+
+    let waits = sessions.iter().map(|s| {
+        let daemon = s.daemon.clone();
+        async move {
+            let mut guard = daemon.lock().await;
+            if let Some(d) = guard.as_mut() {
+                if tokio::time::timeout(std::time::Duration::from_secs(1), d.wait()).await.is_err() {
+                    let _ = d.kill().await;
+                    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), d.wait()).await;
+                }
+            }
+        }
+    });
+    futures_util::future::join_all(waits).await;
 }
 
 async fn run_picker(devices: &[fl_core::Device]) -> anyhow::Result<Vec<String>> {

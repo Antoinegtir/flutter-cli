@@ -29,8 +29,21 @@ fn init_logging() -> anyhow::Result<tracing_appender::non_blocking::WorkerGuard>
     Ok(guard)
 }
 
+/// Ensure the terminal is always returned to a sane state when the process
+/// dies — even from a panic in TUI rendering code. Without this, a crash
+/// inside the TUI loop would leave raw mode on and the alt-screen active.
+fn install_terminal_panic_hook() {
+    let default_hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let _ = crossterm::terminal::disable_raw_mode();
+        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+        default_hook(info);
+    }));
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    install_terminal_panic_hook();
     let _guard = init_logging().ok();
     let cli = Cli::parse();
     match cli.cmd {
