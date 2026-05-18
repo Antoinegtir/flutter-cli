@@ -43,23 +43,37 @@ impl TuiRunner {
         rx: &mut Receiver<AppEvent>,
         keys_tx: Sender<FlKey>,
     ) -> anyhow::Result<()> {
+        use tokio::time::{interval, MissedTickBehavior};
         let theme = Theme::TOKYO_NIGHT;
         let mut splash = Splash::new(theme);
         let frame = Duration::from_millis(33);
-        let mut last_draw = Instant::now();
+        let mut tick = interval(frame);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         let mut events = EventStream::new();
+        let mut last_draw = Instant::now();
 
         loop {
             if state.quitting {
                 break;
             }
 
-            // Wait for the next interesting thing, but cap the wait so we
-            // can redraw at ~30fps even when nothing is happening.
-            let elapsed = last_draw.elapsed();
-            let until_frame = frame.saturating_sub(elapsed);
             tokio::select! {
                 biased;
+                _ = tick.tick() => {
+                    let now = Instant::now();
+                    if !splash.done() {
+                        splash.tick(now - last_draw);
+                        self.terminal.draw(|f| {
+                            let area = f.size();
+                            f.render_widget(&splash, area);
+                        })?;
+                    } else {
+                        self.terminal.draw(|f| {
+                            render(f.size(), f.buffer_mut(), state, &theme);
+                        })?;
+                    }
+                    last_draw = now;
+                }
                 Some(Ok(term_ev)) = events.next() => {
                     if let Some(k) = map_key(term_ev) {
                         if matches!(k, FlKey::Char('q') | FlKey::Ctrl('c')) {
@@ -70,9 +84,8 @@ impl TuiRunner {
                 }
                 Some(ev) = rx.recv() => {
                     state.apply(ev);
-                    // Drain the rest of the channel in one go so we don't
-                    // redraw between every queued event. This is what
-                    // prevents flutter's log torrent from freezing the TUI.
+                    // Drain a bounded burst so we don't redraw between every
+                    // queued event. Then yield via the next select iteration.
                     for _ in 0..256 {
                         match rx.try_recv() {
                             Ok(ev) => state.apply(ev),
@@ -80,25 +93,6 @@ impl TuiRunner {
                         }
                     }
                 }
-                _ = tokio::time::sleep(until_frame) => {}
-            }
-
-            // Redraw only when a full frame has elapsed (or splash is animating,
-            // in which case we want continuous progress).
-            let now = Instant::now();
-            if !splash.done() {
-                let dt = now - last_draw;
-                splash.tick(dt);
-                self.terminal.draw(|f| {
-                    let area = f.size();
-                    f.render_widget(&splash, area);
-                })?;
-                last_draw = now;
-            } else if now - last_draw >= frame {
-                self.terminal.draw(|f| {
-                    render(f.size(), f.buffer_mut(), state, &theme);
-                })?;
-                last_draw = now;
             }
         }
         Ok(())
@@ -115,20 +109,29 @@ impl TuiRunner {
     ) -> anyhow::Result<()> {
         use crate::theme::Theme;
         use futures_util::StreamExt;
+        use tokio::time::{interval, MissedTickBehavior};
         let theme = Theme::TOKYO_NIGHT;
         let frame = std::time::Duration::from_millis(33);
-        let mut last_draw = std::time::Instant::now();
+        let mut tick = interval(frame);
+        tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
         let mut events = crossterm::event::EventStream::new();
+        let mut last_draw = std::time::Instant::now();
 
         loop {
             if view.quitting() {
                 break;
             }
-            let elapsed = last_draw.elapsed();
-            let until_frame = frame.saturating_sub(elapsed);
 
             tokio::select! {
                 biased;
+                _ = tick.tick() => {
+                    let now = std::time::Instant::now();
+                    view.tick(now - last_draw);
+                    self.terminal.draw(|f| {
+                        view.render(f.size(), f.buffer_mut(), &theme);
+                    })?;
+                    last_draw = now;
+                }
                 Some(Ok(term_ev)) = events.next() => {
                     if let Some(k) = crate::runner::map_key(term_ev) {
                         if let Some(input) = view.handle_key(k) {
@@ -145,16 +148,6 @@ impl TuiRunner {
                         }
                     }
                 }
-                _ = tokio::time::sleep(until_frame) => {}
-            }
-
-            let now = std::time::Instant::now();
-            if now - last_draw >= frame {
-                view.tick(now - last_draw);
-                self.terminal.draw(|f| {
-                    view.render(f.size(), f.buffer_mut(), &theme);
-                })?;
-                last_draw = now;
             }
         }
         Ok(())
