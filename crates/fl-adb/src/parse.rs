@@ -49,6 +49,7 @@ pub fn parse_devices_l(stdout: &str) -> Vec<Device> {
             ip,
             android_version: None,
             battery: None,
+            platform: Some("android".into()),
         });
     }
     out

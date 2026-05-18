@@ -78,7 +78,7 @@ mod tests {
         let mut devices = vec![Device {
             serial: "ABC".into(), name: "ABC".into(), model: None,
             connection: ConnectionKind::Usb, state: DeviceState::Online,
-            ip: None, android_version: None, battery: None,
+            ip: None, android_version: None, battery: None, platform: None,
         }];
         enrich(&r, &mut devices).await;
         assert_eq!(devices[0].android_version.as_deref(), Some("14"));

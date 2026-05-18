@@ -35,6 +35,7 @@ pub struct Device {
     pub ip: Option<String>,
     pub android_version: Option<String>,
     pub battery: Option<u8>,
+    pub platform: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -228,6 +229,7 @@ pub struct DeviceSessionSummary {
     pub connection: ConnectionKind,
     pub ip: Option<String>,
     pub state: DeviceSessionState,
+    pub platform: Option<String>,
 }
 
 #[cfg(test)]
@@ -264,6 +266,7 @@ mod tests {
             ip: None,
             android_version: Some("14".into()),
             battery: Some(90),
+            platform: None,
         };
         let b = a.clone();
         assert_eq!(a, b);
@@ -338,6 +341,24 @@ mod tests {
     }
 
     #[test]
+    fn device_platform_roundtrips_through_json() {
+        let d = Device {
+            serial: "X".into(),
+            name: "x".into(),
+            model: None,
+            connection: ConnectionKind::Wifi,
+            state: DeviceState::Online,
+            ip: None,
+            android_version: None,
+            battery: None,
+            platform: Some("ios".into()),
+        };
+        let j = serde_json::to_string(&d).unwrap();
+        let back: Device = serde_json::from_str(&j).unwrap();
+        assert_eq!(back.platform.as_deref(), Some("ios"));
+    }
+
+    #[test]
     fn device_session_summary_equality() {
         let s = DeviceSessionSummary {
             serial: "S".into(),
@@ -346,6 +367,7 @@ mod tests {
             connection: ConnectionKind::Wifi,
             ip: Some("1.2.3.4".into()),
             state: DeviceSessionState::Connecting,
+            platform: None,
         };
         let t = s.clone();
         assert_eq!(s, t);

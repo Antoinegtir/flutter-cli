@@ -105,6 +105,7 @@ impl AppState {
                     sess.ip = d.ip.clone();
                     sess.connection = d.connection;
                     sess.display_name = d.name.clone();
+                    sess.platform = d.platform.clone();
                 }
             }
             DeviceEvent::Lost { serial } => {
@@ -149,6 +150,7 @@ impl AppState {
                         },
                         ip: None,
                         state,
+                        platform: None,
                     });
                 }
             }
@@ -330,6 +332,7 @@ mod tests {
             ip: None,
             android_version: None,
             battery: None,
+            platform: None,
         })));
         assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Ready);
         assert_eq!(s.active_sessions[0].display_name, "Pixel");

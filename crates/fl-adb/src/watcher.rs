@@ -39,6 +39,7 @@ pub fn parse_track_payload(payload: &str) -> Vec<Device> {
                 ip,
                 android_version: None,
                 battery: None,
+                platform: Some("android".into()),
             })
         })
         .collect()
@@ -143,6 +144,7 @@ mod tests {
                 ip: None,
                 android_version: None,
                 battery: None,
+                platform: None,
             },
         );
         let evs = diff_devices(&prev, &[]);
@@ -164,6 +166,7 @@ mod tests {
                 ip: Some("1.2.3.4".into()),
                 android_version: None,
                 battery: None,
+                platform: None,
             },
         );
         let evs = diff_devices(&prev, &[]);

@@ -165,6 +165,7 @@ mod tests {
             ip: None,
             android_version: None,
             battery: None,
+            platform: None,
         }
     }
 
