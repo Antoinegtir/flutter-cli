@@ -44,6 +44,23 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                     message: format!("build started ({name})"),
                 })
             }
+            // Device-list maintenance from the daemon — noisy and verbose
+            // (each event carries the full device JSON). We already track
+            // devices ourselves via ADB and xcrun, so drop them entirely.
+            "device.added" | "device.removed" | "device.changed" => None,
+            "app.debugPort" | "app.devTools" | "app.dtd" => {
+                // Connection-info events; useful but the raw JSON is huge.
+                // Summarise to a one-liner.
+                let params = obj.get("params");
+                let uri = params
+                    .and_then(|p| p.get("wsUri").or_else(|| p.get("uri")))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                Some(FlutterEvent::Log {
+                    level: LogLevel::Debug,
+                    message: format!("{event}: {uri}"),
+                })
+            }
             "daemon.logMessage" => {
                 let params = obj.get("params")?;
                 let level_s = params.get("level").and_then(Value::as_str).unwrap_or("info");

@@ -44,10 +44,14 @@ impl FlutterDaemon {
             while let Ok(Some(line)) = lines.next_line().await {
                 if let Some(ev) = parse_daemon_line(&line) {
                     tx_out.send(ev).await.ok();
+                } else if line.starts_with('[') {
+                    // Unhandled daemon JSON event — drop silently rather
+                    // than dumping the raw 1000-char payload to the log.
+                    continue;
                 } else {
                     tx_out.send(FlutterEvent::Log {
                         level: fl_core::LogLevel::Debug,
-                        message: line,
+                        message: truncate_log_line(line),
                     }).await.ok();
                 }
             }
@@ -59,13 +63,28 @@ impl FlutterDaemon {
             while let Ok(Some(line)) = lines.next_line().await {
                 tx_err.send(FlutterEvent::Log {
                     level: fl_core::LogLevel::Error,
-                    message: line,
+                    message: truncate_log_line(line),
                 }).await.ok();
             }
         });
 
         Ok(Self { child, stdin })
     }
+}
+
+/// Cap a log line at 500 chars so ratatui doesn't have to allocate / clamp
+/// gigantic strings every render. Appends `…` when truncation happens.
+fn truncate_log_line(mut line: String) -> String {
+    const MAX: usize = 500;
+    if line.chars().count() <= MAX {
+        return line;
+    }
+    line = line.chars().take(MAX - 1).collect();
+    line.push('…');
+    line
+}
+
+impl FlutterDaemon {
 
     /// Send `q` to the daemon to gracefully quit the running app.
     pub async fn send_quit(&mut self) -> anyhow::Result<()> {
