@@ -199,7 +199,9 @@ pub async fn run_multi(
     let runner = Arc::new(TokioRunner);
 
     let listed = runner.run("adb", &["devices", "-l"]).await?;
-    let all_devices = parse_devices_l(&listed.stdout);
+    let mut all_devices = parse_devices_l(&listed.stdout);
+    let xcrun = fl_ios::Xcrun::new(TokioRunner);
+    all_devices.extend(fl_ios::list_apple_devices(&xcrun).await);
 
     let headless = std::env::var_os("FL_HEADLESS").is_some();
     let chosen: Vec<String> = if !devices_arg.is_empty() {
@@ -224,7 +226,9 @@ pub async fn run_multi(
     for serial in &chosen {
         let usb_pair = all_devices
             .iter()
-            .find(|d| d.serial == *serial && matches!(d.connection, fl_core::ConnectionKind::Usb))
+            .find(|d| d.serial == *serial
+                  && matches!(d.connection, fl_core::ConnectionKind::Usb)
+                  && (d.platform.as_deref() == Some("android") || d.platform.is_none()))
             .map(|d| d.serial.clone());
         let s = spawn_session(
             runner.clone(),
@@ -248,6 +252,20 @@ pub async fn run_multi(
                 if let Err(e) = track_devices(dev_tx).await {
                     tracing::warn!("track-devices loop ended: {e}");
                 }
+            });
+            while let Some(ev) = dev_rx.recv().await {
+                tx.send(AppEvent::Device(ev)).await.ok();
+            }
+        });
+    }
+
+    {
+        let tx = event_tx.clone();
+        tokio::spawn(async move {
+            let (dev_tx, mut dev_rx) = mpsc::channel(32);
+            tokio::spawn(async move {
+                let xcrun = fl_ios::Xcrun::new(TokioRunner);
+                fl_ios::watch_apple_devices(xcrun, dev_tx).await;
             });
             while let Some(ev) = dev_rx.recv().await {
                 tx.send(AppEvent::Device(ev)).await.ok();

@@ -14,6 +14,7 @@ fl-adb = { path = "../fl-adb" }
 fl-flutter = { path = "../fl-flutter" }
 fl-vmservice = { path = "../fl-vmservice" }
 fl-tui = { path = "../fl-tui" }
+fl-ios = { path = "../fl-ios" }
 anyhow.workspace = true
 clap.workspace = true
 tokio.workspace = true
