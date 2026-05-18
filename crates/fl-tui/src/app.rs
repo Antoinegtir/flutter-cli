@@ -20,7 +20,7 @@ pub fn prefix_color_index(short_name: &str) -> usize {
     (hash % 4) as usize
 }
 
-const LOG_RING: usize = 5_000;
+const LOG_RING: usize = 1_000;
 const FPS_RING: usize = 60;
 const MEM_RING: usize = 60;
 
