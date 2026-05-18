@@ -99,7 +99,8 @@ mod tests {
         m.expect(
             "xcrun devicectl list devices --json-output -",
             CommandOutput::ok(r#"{"result":{"devices":[{
-                "identifier":"P","deviceProperties":{"name":"iPhone","platform":"iOS"},
+                "identifier":"H","hardwareProperties":{"udid":"P","platform":"iOS"},
+                "deviceProperties":{"name":"iPhone"},
                 "connectionProperties":{"transportType":"wired","tunnelState":"connected"}
             }]}}"#),
         );

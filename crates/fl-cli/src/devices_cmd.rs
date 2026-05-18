@@ -1,16 +1,19 @@
-//! `fl devices` — list attached devices using fl-adb.
+//! `fl devices` — list attached devices using fl-adb + fl-ios.
 
-use anyhow::Context;
 use fl_adb::{parse_devices_l, CommandRunner, TokioRunner};
 use fl_core::{ConnectionKind, Device, DeviceState};
+use fl_ios::Xcrun;
 
 pub async fn run() -> anyhow::Result<()> {
     let runner = TokioRunner;
-    let out = runner.run("adb", &["devices", "-l"]).await.context("running `adb devices -l`")?;
-    if out.status != 0 {
-        anyhow::bail!("adb exited with status {}: {}", out.status, out.stderr.trim());
+    let mut devices: Vec<Device> = Vec::new();
+    if let Ok(out) = runner.run("adb", &["devices", "-l"]).await {
+        if out.status == 0 {
+            devices.extend(parse_devices_l(&out.stdout));
+        }
     }
-    let mut devices = parse_devices_l(&out.stdout);
+    let xcrun = Xcrun::new(TokioRunner);
+    devices.extend(fl_ios::list_apple_devices(&xcrun).await);
     enrich(&runner, &mut devices).await;
     print_table(&devices);
     Ok(())
@@ -40,7 +43,10 @@ fn print_table(devices: &[Device]) {
         println!("(no devices)");
         return;
     }
-    println!("{:<24} {:<22} {:<7} {:<16} {:<8} {:<8}", "NAME", "SERIAL", "CONN", "IP", "ANDROID", "BAT");
+    println!(
+        "  {:<24} {:<32} {:<8} {:<6} {:<7} {:<6}",
+        "NAME", "SERIAL", "PLATFORM", "CONN", "OS", "BAT"
+    );
     for d in devices {
         let conn = match d.connection {
             ConnectionKind::Usb => "USB",
@@ -52,16 +58,26 @@ fn print_table(devices: &[Device]) {
             DeviceState::Unauthorized => "?",
             DeviceState::Connecting => "…",
         };
+        let platform = d.platform.clone().unwrap_or_else(|| "-".into());
+        let plat_display = if platform == "ios-simulator" { "ios-sim".to_string() } else { platform };
         println!(
-            "{} {:<22} {:<22} {:<7} {:<16} {:<8} {:<8}",
+            "{} {:<24} {:<32} {:<8} {:<6} {:<7} {:<6}",
             state,
-            d.name,
-            d.serial,
+            truncate(&d.name, 24),
+            truncate(&d.serial, 32),
+            plat_display,
             conn,
-            d.ip.clone().unwrap_or_default(),
             d.android_version.clone().unwrap_or_default(),
             d.battery.map(|b| format!("{b}%")).unwrap_or_default(),
         );
+    }
+}
+
+fn truncate(s: &str, max: usize) -> String {
+    if s.chars().count() <= max {
+        s.to_string()
+    } else {
+        s.chars().take(max - 1).collect::<String>() + "…"
     }
 }
 

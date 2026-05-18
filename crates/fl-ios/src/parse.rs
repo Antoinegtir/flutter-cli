@@ -4,8 +4,16 @@ use fl_core::{ConnectionKind, Device, DeviceState};
 use serde_json::Value;
 
 /// Parse `xcrun devicectl list devices --json-output -` into `Device`s.
+///
+/// Real-world `xcrun devicectl` output often contains warning text before the JSON
+/// (e.g. "Failed to load provisioning parameter list..." and a tabular preview).
+/// We locate the first `{` and parse from there.
 pub fn parse_devicectl_json(raw: &str) -> Vec<Device> {
-    let v: Value = match serde_json::from_str(raw) {
+    let start = match raw.find('{') {
+        Some(i) => i,
+        None => return Vec::new(),
+    };
+    let v: Value = match serde_json::from_str(&raw[start..]) {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
@@ -17,12 +25,23 @@ pub fn parse_devicectl_json(raw: &str) -> Vec<Device> {
 }
 
 fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
-    let identifier = entry.get("identifier").and_then(Value::as_str)?.to_string();
-    let props = entry.get("deviceProperties")?;
-    let name = props.get("name").and_then(Value::as_str)?.to_string();
-    let platform_raw = props.get("platform").and_then(Value::as_str).unwrap_or("iOS").to_string();
-    let platform = platform_raw.to_ascii_lowercase();
-    let os_version = props.get("osVersionNumber").and_then(Value::as_str).map(str::to_string);
+    let hw = entry.get("hardwareProperties")?;
+    // Prefer the ECID-based UDID (what Flutter uses) over the higher-level identifier.
+    let udid = hw
+        .get("udid")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .or_else(|| entry.get("identifier").and_then(Value::as_str).map(str::to_string))?;
+    let dev_props = entry.get("deviceProperties")?;
+    let name = dev_props.get("name").and_then(Value::as_str)?.to_string();
+
+    let platform = hw
+        .get("platform")
+        .and_then(Value::as_str)
+        .or_else(|| dev_props.get("platform").and_then(Value::as_str))
+        .unwrap_or("iOS")
+        .to_ascii_lowercase();
+    let os_version = dev_props.get("osVersionNumber").and_then(Value::as_str).map(str::to_string);
 
     let conn = entry.get("connectionProperties");
     let connection = match conn.and_then(|c| c.get("transportType")).and_then(Value::as_str) {
@@ -37,9 +56,9 @@ fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
     let state = if tunnel_connected { DeviceState::Online } else { DeviceState::Offline };
 
     Some(Device {
-        serial: identifier.clone(),
+        serial: udid,
         name,
-        model: None,
+        model: hw.get("marketingName").and_then(Value::as_str).map(str::to_string),
         connection,
         state,
         ip: None,
@@ -95,11 +114,15 @@ mod tests {
         "result": {
             "devices": [
                 {
-                    "identifier": "00008140-001234567890",
+                    "identifier": "high-level-uuid-1",
+                    "hardwareProperties": {
+                        "udid": "00008140-001234567890",
+                        "platform": "iOS",
+                        "marketingName": "iPhone 15"
+                    },
                     "deviceProperties": {
                         "name": "iPhone 15",
-                        "osVersionNumber": "17.4.1",
-                        "platform": "iOS"
+                        "osVersionNumber": "17.4.1"
                     },
                     "connectionProperties": {
                         "transportType": "wired",
@@ -107,11 +130,15 @@ mod tests {
                     }
                 },
                 {
-                    "identifier": "00008110-ABCDEF",
+                    "identifier": "high-level-uuid-2",
+                    "hardwareProperties": {
+                        "udid": "00008110-ABCDEF",
+                        "platform": "iPadOS",
+                        "marketingName": "iPad Pro"
+                    },
                     "deviceProperties": {
                         "name": "iPad Pro",
-                        "osVersionNumber": "17.4",
-                        "platform": "iPadOS"
+                        "osVersionNumber": "17.4"
                     },
                     "connectionProperties": {
                         "transportType": "wireless",
@@ -138,11 +165,20 @@ mod tests {
     #[test]
     fn parse_devicectl_json_developer_mode_disabled_marks_offline() {
         let raw = r#"{"result":{"devices":[{
-            "identifier":"X","deviceProperties":{"name":"iPhone","platform":"iOS"},
+            "identifier":"H","hardwareProperties":{"udid":"X","platform":"iOS"},
+            "deviceProperties":{"name":"iPhone"},
             "connectionProperties":{"transportType":"wired","tunnelState":"disconnected"}
         }]}}"#;
         let v = parse_devicectl_json(raw);
         assert_eq!(v[0].state, DeviceState::Offline);
+    }
+
+    #[test]
+    fn parse_devicectl_json_skips_leading_warning_text() {
+        let raw = "Failed to load provisioning parameter list\nName    Identifier\n---     ---\niPhone  ABC\n{\"result\":{\"devices\":[{\"identifier\":\"H\",\"hardwareProperties\":{\"udid\":\"REAL-UDID\",\"platform\":\"iOS\"},\"deviceProperties\":{\"name\":\"iPhone\"},\"connectionProperties\":{\"transportType\":\"wired\",\"tunnelState\":\"connected\"}}]}}";
+        let v = parse_devicectl_json(raw);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].serial, "REAL-UDID");
     }
 
     #[test]
