@@ -110,6 +110,9 @@ impl AppState {
             DeviceEvent::WifiReconnected => {
                 self.show_banner(BannerKind::Success, "WiFi reconnected");
             }
+            DeviceEvent::IpChanged { serial: _, old_ip: _, new_ip: _ } => {
+                self.show_banner(BannerKind::Info, "Device IP changed");
+            }
             DeviceEvent::Error(msg) => {
                 self.show_banner(BannerKind::Error, &msg);
             }

@@ -19,6 +19,7 @@ pub enum DeviceEvent {
     WifiPaired { serial: String, ip: String, port: u16 },
     WifiReconnecting { attempt: u32 },
     WifiReconnected,
+    IpChanged { serial: String, old_ip: String, new_ip: String },
     Error(String),
 }
 
@@ -130,5 +131,24 @@ mod tests {
         };
         let b = a.clone();
         assert_eq!(a, b);
+    }
+
+    #[test]
+    fn ipchanged_roundtrips_through_json() {
+        let original = AppEvent::Device(DeviceEvent::IpChanged {
+            serial: "1.2.3.4:5555".into(),
+            old_ip: "1.2.3.4".into(),
+            new_ip: "10.0.0.5".into(),
+        });
+        let json = serde_json::to_string(&original).unwrap();
+        let back: AppEvent = serde_json::from_str(&json).unwrap();
+        match back {
+            AppEvent::Device(DeviceEvent::IpChanged { serial, old_ip, new_ip }) => {
+                assert_eq!(serial, "1.2.3.4:5555");
+                assert_eq!(old_ip, "1.2.3.4");
+                assert_eq!(new_ip, "10.0.0.5");
+            }
+            _ => panic!("variant mismatch"),
+        }
     }
 }
