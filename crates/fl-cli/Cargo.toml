@@ -1,0 +1,23 @@
+[package]
+name = "fl-cli"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "fl"
+path = "src/main.rs"
+
+[dependencies]
+fl-core = { path = "../fl-core" }
+fl-adb = { path = "../fl-adb" }
+fl-flutter = { path = "../fl-flutter" }
+fl-vmservice = { path = "../fl-vmservice" }
+fl-tui = { path = "../fl-tui" }
+anyhow.workspace = true
+clap.workspace = true
+tokio.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+directories.workspace = true
