@@ -1,6 +1,7 @@
 //! Events flowing through the application's central mpsc channel.
 
 use serde::{Deserialize, Serialize};
+use clap::ValueEnum;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AppEvent {
@@ -94,6 +95,44 @@ pub enum KeyEvent {
     Backspace,
 }
 
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuildMode {
+    Debug,
+    Profile,
+    Release,
+}
+
+impl BuildMode {
+    pub fn flutter_flag(self) -> &'static str {
+        match self {
+            BuildMode::Debug => "--debug",
+            BuildMode::Profile => "--profile",
+            BuildMode::Release => "--release",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, ValueEnum)]
+#[serde(rename_all = "kebab-case")]
+pub enum BuildTarget {
+    Apk,
+    Aab,
+    Ios,
+    Web,
+}
+
+impl BuildTarget {
+    pub fn flutter_arg(self) -> &'static str {
+        match self {
+            BuildTarget::Apk => "apk",
+            BuildTarget::Aab => "appbundle",
+            BuildTarget::Ios => "ios",
+            BuildTarget::Web => "web",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -150,5 +189,20 @@ mod tests {
             }
             _ => panic!("variant mismatch"),
         }
+    }
+
+    #[test]
+    fn build_mode_flag_mapping() {
+        assert_eq!(BuildMode::Debug.flutter_flag(), "--debug");
+        assert_eq!(BuildMode::Profile.flutter_flag(), "--profile");
+        assert_eq!(BuildMode::Release.flutter_flag(), "--release");
+    }
+
+    #[test]
+    fn build_target_arg_mapping() {
+        assert_eq!(BuildTarget::Apk.flutter_arg(), "apk");
+        assert_eq!(BuildTarget::Aab.flutter_arg(), "appbundle");
+        assert_eq!(BuildTarget::Ios.flutter_arg(), "ios");
+        assert_eq!(BuildTarget::Web.flutter_arg(), "web");
     }
 }
