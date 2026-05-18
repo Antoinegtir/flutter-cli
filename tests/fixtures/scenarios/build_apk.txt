@@ -3,4 +3,4 @@
 SLEEP 0.05
 [{"event":"app.progress","params":{"id":"gradle","message":"Running Gradle task","finished":true}}]
 [{"event":"daemon.logMessage","params":{"level":"info","message":"Built build/app/outputs/flutter-apk/app-release.apk (12.3MB)."}}]
-[{"event":"app.stop","params":{"exitCode":0}}]
+[{"event":"app.stopped","params":{"exitCode":0}}]

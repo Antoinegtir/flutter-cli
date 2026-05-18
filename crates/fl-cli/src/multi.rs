@@ -127,6 +127,17 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             };
             event_tx_logs.send(AppEvent::Flutter(prefixed)).await.ok();
         }
+        // The daemon's stdout/stderr pipes have closed — the `flutter` process
+        // exited. Inform the TUI so it can quit (or, in multi-device mode, mark
+        // this session done while the others keep running).
+        event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
+            serial: serial_for_state.clone(),
+            state: DeviceSessionState::Stopped,
+        })).await.ok();
+        event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Info,
+            message: format!("[{short_for_logs}] flutter daemon exited"),
+        })).await.ok();
     });
 
     Ok(session)

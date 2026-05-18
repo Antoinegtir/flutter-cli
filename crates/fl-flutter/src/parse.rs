@@ -23,9 +23,26 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                     .and_then(Value::as_str)?.to_string();
                 Some(FlutterEvent::AppStarted { app_id, vm_service_uri: uri })
             }
-            "app.stop" | "app.stopped" => {
+            // Only `app.stopped` is terminal. `app.stop` is an intermediate
+            // shutdown-initiated event that fires mid-build for things like
+            // pod install / Gradle hot-restart; treating it as terminal makes
+            // fl exit prematurely.
+            "app.stopped" => {
                 let code = obj.get("params").and_then(|p| p.get("exitCode")).and_then(Value::as_i64).map(|i| i as i32);
                 Some(FlutterEvent::Stopped { exit_code: code })
+            }
+            "app.start" => {
+                // app.start fires when the build begins. Surface it as an info
+                // log so the user knows things are happening; not terminal.
+                let params = obj.get("params");
+                let name = params
+                    .and_then(|p| p.get("appId"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("");
+                Some(FlutterEvent::Log {
+                    level: LogLevel::Info,
+                    message: format!("build started ({name})"),
+                })
             }
             "daemon.logMessage" => {
                 let params = obj.get("params")?;

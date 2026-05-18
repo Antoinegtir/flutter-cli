@@ -2,4 +2,4 @@
 [{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]
 [{"event":"daemon.logMessage","params":{"level":"info","message":"App is running"}}]
 SLEEP 4
-[{"event":"app.stop","params":{"exitCode":0}}]
+[{"event":"app.stopped","params":{"exitCode":0}}]

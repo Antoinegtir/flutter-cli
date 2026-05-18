@@ -100,7 +100,7 @@ mod tests {
         std::fs::write(&script, r#"#!/bin/sh
 echo '[{"event":"daemon.connected","params":{"version":"0.6.1"}}]'
 echo '[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]'
-echo '[{"event":"app.stop","params":{"exitCode":0}}]'
+echo '[{"event":"app.stopped","params":{"exitCode":0}}]'
 "#).unwrap();
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&script).unwrap().permissions();

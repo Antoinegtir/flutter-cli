@@ -153,6 +153,15 @@ impl AppState {
                         platform: None,
                     });
                 }
+                // Auto-quit once every active session has reported Stopped.
+                if !self.active_sessions.is_empty()
+                    && self.active_sessions.iter().all(|s| {
+                        matches!(s.state, fl_core::DeviceSessionState::Stopped
+                                       | fl_core::DeviceSessionState::Failed)
+                    })
+                {
+                    self.quitting = true;
+                }
             }
             DeviceEvent::Error(msg) => {
                 self.show_banner(BannerKind::Error, &msg);
@@ -176,8 +185,9 @@ impl AppState {
                 }
             }
             FlutterEvent::Stopped { exit_code } => {
-                self.push_log(LogLevel::Info, format!("flutter exited ({:?})", exit_code));
-                self.quitting = true;
+                // Don't quit here — multi-device flow emits SessionState=Stopped
+                // and apply_device decides when every session is done.
+                self.push_log(LogLevel::Info, format!("flutter exited ({exit_code:?})"));
             }
             FlutterEvent::Error(msg) => self.push_log(LogLevel::Error, msg),
         }
