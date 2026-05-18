@@ -1,8 +1,24 @@
 //! State mutated by `AppEvent`s and read by the renderer.
 
-use fl_core::{AppEvent, Device, DeviceEvent, FlutterEvent, LogLevel, VmEvent};
+use fl_core::{AppEvent, DeviceEvent, FlutterEvent, LogLevel, VmEvent};
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
+
+pub fn short_name_for_serial(serial: &str) -> String {
+    let mut s: String = serial.chars().filter(|c| c.is_alphanumeric()).take(8).collect();
+    if s.is_empty() {
+        s.push('?');
+    }
+    s
+}
+
+pub fn prefix_color_index(short_name: &str) -> usize {
+    let mut hash: u64 = 5381;
+    for b in short_name.bytes() {
+        hash = hash.wrapping_mul(33).wrapping_add(b as u64);
+    }
+    (hash % 4) as usize
+}
 
 const LOG_RING: usize = 5_000;
 const FPS_RING: usize = 60;
@@ -18,8 +34,7 @@ pub struct LogLine {
 pub struct AppState {
     pub app_name: String,
     pub mode: String,
-    pub active_device: Option<Device>,
-    pub backup_device: Option<Device>,
+    pub active_sessions: Vec<fl_core::DeviceSessionSummary>,
     pub logs: VecDeque<LogLine>,
     pub log_filter: Option<String>,
     pub fps_samples: VecDeque<f32>,
@@ -56,8 +71,7 @@ impl AppState {
         Self {
             app_name,
             mode,
-            active_device: None,
-            backup_device: None,
+            active_sessions: Vec::new(),
             logs: VecDeque::with_capacity(LOG_RING),
             log_filter: None,
             fps_samples: VecDeque::with_capacity(FPS_RING),
@@ -86,20 +100,19 @@ impl AppState {
     fn apply_device(&mut self, ev: DeviceEvent) {
         match ev {
             DeviceEvent::Discovered(d) => {
-                if self.active_device.is_none() {
-                    self.active_device = Some(d);
-                } else {
-                    self.backup_device = Some(d);
+                if let Some(sess) = self.active_sessions.iter_mut().find(|s| s.serial == d.serial) {
+                    sess.state = fl_core::DeviceSessionState::Ready;
+                    sess.ip = d.ip.clone();
+                    sess.connection = d.connection;
+                    sess.display_name = d.name.clone();
                 }
             }
             DeviceEvent::Lost { serial } => {
-                if self.active_device.as_ref().is_some_and(|d| d.serial == serial) {
-                    self.active_device = self.backup_device.take();
-                } else if self.backup_device.as_ref().is_some_and(|d| d.serial == serial) {
-                    self.backup_device = None;
+                if let Some(sess) = self.active_sessions.iter_mut().find(|s| s.serial == serial) {
+                    sess.state = fl_core::DeviceSessionState::Stopped;
                 }
             }
-            DeviceEvent::UsbDisconnected { serial: _ } => {
+            DeviceEvent::UsbDisconnected { .. } => {
                 self.show_banner(BannerKind::Info, "USB déconnecté — WiFi prend le relais");
             }
             DeviceEvent::WifiPaired { .. } => {
@@ -115,13 +128,30 @@ impl AppState {
                 self.clear_persistent_banner();
                 self.show_banner(BannerKind::Success, "WiFi reconnected");
             }
-            DeviceEvent::IpChanged { new_ip, .. } => {
+            DeviceEvent::IpChanged { new_ip, serial, .. } => {
                 self.show_banner(BannerKind::Success, &format!("New IP: {new_ip}"));
-                if let Some(d) = self.active_device.as_mut() {
-                    d.ip = Some(new_ip.clone());
+                if let Some(sess) = self.active_sessions.iter_mut().find(|s| s.serial == serial) {
+                    sess.ip = Some(new_ip.clone());
                 }
             }
-            DeviceEvent::SessionState { .. } => {}
+            DeviceEvent::SessionState { serial, state } => {
+                if let Some(sess) = self.active_sessions.iter_mut().find(|s| s.serial == serial) {
+                    sess.state = state;
+                } else {
+                    self.active_sessions.push(fl_core::DeviceSessionSummary {
+                        serial: serial.clone(),
+                        short_name: short_name_for_serial(&serial),
+                        display_name: serial.clone(),
+                        connection: if serial.contains(':') && serial.contains('.') {
+                            fl_core::ConnectionKind::Wifi
+                        } else {
+                            fl_core::ConnectionKind::Usb
+                        },
+                        ip: None,
+                        state,
+                    });
+                }
+            }
             DeviceEvent::Error(msg) => {
                 self.show_banner(BannerKind::Error, &msg);
             }
@@ -269,35 +299,73 @@ impl crate::view::View for AppState {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fl_core::{ConnectionKind, DeviceState};
+    #[allow(unused_imports)]
+    use fl_core::{ConnectionKind, Device, DeviceState};
 
-    fn dev(serial: &str, c: ConnectionKind) -> Device {
-        Device {
-            serial: serial.into(),
-            name: serial.into(),
+    #[test]
+    fn session_state_event_creates_summary_for_unknown_serial() {
+        let mut s = AppState::new("app".into(), "debug".into());
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Connecting,
+        }));
+        assert_eq!(s.active_sessions.len(), 1);
+        assert_eq!(s.active_sessions[0].serial, "ABC");
+        assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Connecting);
+    }
+
+    #[test]
+    fn discovered_marks_session_ready() {
+        let mut s = AppState::new("app".into(), "debug".into());
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Connecting,
+        }));
+        s.apply(AppEvent::Device(DeviceEvent::Discovered(Device {
+            serial: "ABC".into(),
+            name: "Pixel".into(),
             model: None,
-            connection: c,
-            state: DeviceState::Online,
+            connection: fl_core::ConnectionKind::Usb,
+            state: fl_core::DeviceState::Online,
             ip: None,
             android_version: None,
             battery: None,
-        }
+        })));
+        assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Ready);
+        assert_eq!(s.active_sessions[0].display_name, "Pixel");
     }
 
     #[test]
-    fn discovered_device_becomes_active_when_no_other() {
+    fn ipchanged_updates_session_ip() {
         let mut s = AppState::new("app".into(), "debug".into());
-        s.apply(AppEvent::Device(DeviceEvent::Discovered(dev("A", ConnectionKind::Usb))));
-        assert_eq!(s.active_device.as_ref().unwrap().serial, "A");
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "1.2.3.4:5555".into(),
+            state: fl_core::DeviceSessionState::Ready,
+        }));
+        s.apply(AppEvent::Device(DeviceEvent::IpChanged {
+            serial: "1.2.3.4:5555".into(),
+            old_ip: "1.2.3.4".into(),
+            new_ip: "10.0.0.5".into(),
+        }));
+        assert_eq!(s.active_sessions[0].ip.as_deref(), Some("10.0.0.5"));
     }
 
     #[test]
-    fn second_discovered_becomes_backup() {
+    fn lost_marks_session_stopped() {
         let mut s = AppState::new("app".into(), "debug".into());
-        s.apply(AppEvent::Device(DeviceEvent::Discovered(dev("A", ConnectionKind::Wifi))));
-        s.apply(AppEvent::Device(DeviceEvent::Discovered(dev("B", ConnectionKind::Usb))));
-        assert_eq!(s.active_device.as_ref().unwrap().serial, "A");
-        assert_eq!(s.backup_device.as_ref().unwrap().serial, "B");
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Ready,
+        }));
+        s.apply(AppEvent::Device(DeviceEvent::Lost { serial: "ABC".into() }));
+        assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Stopped);
+    }
+
+    #[test]
+    fn short_name_for_serial_truncates_to_8() {
+        assert_eq!(short_name_for_serial("Pixel_8_AB12"), "Pixel8AB");
+        assert_eq!(short_name_for_serial("192.168.1.42:5555"), "19216814");
+        assert_eq!(short_name_for_serial(""), "?");
     }
 
     #[test]
@@ -368,24 +436,4 @@ mod tests {
         assert!(b.duration.is_some(), "should be transient");
     }
 
-    #[test]
-    fn ipchanged_updates_active_device_ip() {
-        let mut s = AppState::new("a".into(), "d".into());
-        s.apply(AppEvent::Device(DeviceEvent::Discovered(Device {
-            serial: "1.2.3.4:5555".into(),
-            name: "Pixel".into(),
-            model: None,
-            connection: fl_core::ConnectionKind::Wifi,
-            state: fl_core::DeviceState::Online,
-            ip: Some("1.2.3.4".into()),
-            android_version: None,
-            battery: None,
-        })));
-        s.apply(AppEvent::Device(DeviceEvent::IpChanged {
-            serial: "1.2.3.4:5555".into(),
-            old_ip: "1.2.3.4".into(),
-            new_ip: "10.0.0.5".into(),
-        }));
-        assert_eq!(s.active_device.as_ref().unwrap().ip.as_deref(), Some("10.0.0.5"));
-    }
 }

@@ -29,7 +29,11 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
 }
 
 fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
-    let device = state.active_device.as_ref().map(|d| d.name.clone()).unwrap_or_else(|| "no device".into());
+    let device = match state.active_sessions.len() {
+        0 => "no device".to_string(),
+        1 => state.active_sessions[0].display_name.clone(),
+        n => format!("{n} devices"),
+    };
     let title = format!(" fl ── {} · {} · {} ", state.app_name, state.mode, device);
     let alpha = state.reload_flash_alpha();
     let bg = if alpha > 0.0 {

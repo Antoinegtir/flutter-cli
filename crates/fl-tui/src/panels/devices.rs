@@ -1,43 +1,47 @@
-//! Devices panel: active + backup device with WiFi/USB icons.
+//! Devices panel: render one row per active session.
 
-use crate::app::AppState;
+use crate::app::{prefix_color_index, AppState};
 use crate::theme::Theme;
-use fl_core::{ConnectionKind, Device, DeviceState};
+use fl_core::{ConnectionKind, DeviceSessionState, DeviceSessionSummary};
 use ratatui::buffer::Buffer;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-fn line_for(device: Option<&Device>, active: bool, theme: &Theme) -> Vec<Line<'static>> {
-    let Some(d) = device else {
-        return vec![Line::styled("(aucun)".to_string(), theme.dimmed())];
+fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>> {
+    let (bullet, bullet_color) = match session.state {
+        DeviceSessionState::Ready => ('●', theme.success),
+        DeviceSessionState::Reloading => ('⠹', theme.warn),
+        DeviceSessionState::Connecting => ('⠋', theme.warn),
+        DeviceSessionState::Stopped => ('○', theme.dim),
+        DeviceSessionState::Failed => ('✗', theme.error),
     };
-    let bullet = if active { '●' } else { '○' };
-    let icon = match d.connection {
+    let icon = match session.connection {
         ConnectionKind::Wifi => "🔗 WiFi",
         ConnectionKind::Usb => "⚡ USB",
     };
-    let state_str = match d.state {
-        DeviceState::Online => "✓",
-        DeviceState::Offline => "✗",
-        DeviceState::Unauthorized => "?",
-        DeviceState::Connecting => "…",
+    let state_label = match session.state {
+        DeviceSessionState::Ready => "ready",
+        DeviceSessionState::Reloading => "reloading",
+        DeviceSessionState::Connecting => "connecting",
+        DeviceSessionState::Stopped => "stopped",
+        DeviceSessionState::Failed => "failed",
     };
-    let style_main = if active { theme.base() } else { theme.dimmed() };
-
-    let mut out = Vec::new();
-    out.push(Line::from(vec![
-        Span::styled(format!("{bullet} "), Style::default().fg(if active { theme.success } else { theme.dim }).bg(theme.bg)),
-        Span::styled(d.name.clone(), style_main),
+    let palette = [theme.accent, theme.cyan, theme.success, theme.warn];
+    let prefix_color = palette[prefix_color_index(&session.short_name)];
+    let row1 = Line::from(vec![
+        Span::styled(format!("{bullet} "), Style::default().fg(bullet_color).bg(theme.bg)),
+        Span::styled(format!("[{:<8}] ", session.short_name), Style::default().fg(prefix_color).bg(theme.bg)),
+        Span::styled(session.display_name.clone(), theme.base()),
         Span::raw("  "),
         Span::styled(icon.to_string(), theme.dimmed()),
         Span::raw("  "),
-        Span::styled(state_str.to_string(), style_main),
-    ]));
-    let ip = d.ip.clone().unwrap_or_else(|| d.serial.clone());
-    out.push(Line::styled(format!("  {ip}"), theme.dimmed()));
-    out
+        Span::styled(state_label.to_string(), theme.dimmed()),
+    ]);
+    let addr = session.ip.clone().unwrap_or_else(|| session.serial.clone());
+    let row2 = Line::styled(format!("    {addr}"), theme.dimmed());
+    vec![row1, row2]
 }
 
 pub fn render_devices(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
@@ -49,79 +53,80 @@ pub fn render_devices(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     let inner = block.inner(area);
     block.render(area, buf);
 
-    let mut lines = line_for(state.active_device.as_ref(), true, theme);
+    let mut lines: Vec<Line> = Vec::new();
+    if state.active_sessions.is_empty() {
+        lines.push(Line::styled("(aucun)".to_string(), theme.dimmed()));
+    } else {
+        for sess in &state.active_sessions {
+            lines.extend(lines_for(sess, theme));
+        }
+    }
+    // Persistent reconnecting indicator (sub-project A).
     if let Some(b) = &state.banner {
         if b.duration.is_none() && b.message.starts_with("Reconnecting") {
             lines.push(Line::styled(format!("  ↻ {}", b.message), theme.dimmed()));
         }
     }
-    lines.extend(line_for(state.backup_device.as_ref(), false, theme));
     Paragraph::new(lines).render(inner, buf);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fl_core::{ConnectionKind, DeviceState};
+    use crate::app::AppState;
+    use fl_core::{AppEvent, DeviceEvent, DeviceSessionState};
 
-    fn dev_wifi() -> Device {
-        Device {
-            serial: "1.2.3.4:5555".into(),
-            name: "Pixel 8".into(),
-            model: Some("Pixel 8".into()),
-            connection: ConnectionKind::Wifi,
-            state: DeviceState::Online,
-            ip: Some("1.2.3.4".into()),
-            android_version: Some("14".into()),
-            battery: Some(80),
+    fn add_session(s: &mut AppState, serial: &str, state: DeviceSessionState) {
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: serial.into(),
+            state,
+        }));
+    }
+
+    #[test]
+    fn renders_two_sessions_with_two_lines_each() {
+        let mut s = AppState::new("a".into(), "d".into());
+        add_session(&mut s, "ABC", DeviceSessionState::Ready);
+        add_session(&mut s, "1.2.3.4:5555", DeviceSessionState::Connecting);
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 10));
+        render_devices(Rect::new(0, 0, 60, 10), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width {
+                text.push_str(buf.get(x, y).symbol());
+            }
+            text.push('\n');
         }
+        assert!(text.contains("ABC"), "missing ABC:\n{text}");
+        assert!(text.contains("1.2.3.4"), "missing wifi serial:\n{text}");
     }
 
     #[test]
-    fn active_line_uses_filled_bullet() {
-        let t = Theme::TOKYO_NIGHT;
-        let d = dev_wifi();
-        let lines = line_for(Some(&d), true, &t);
-        let s: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(s.starts_with("● "));
-    }
-
-    #[test]
-    fn backup_line_uses_hollow_bullet() {
-        let t = Theme::TOKYO_NIGHT;
-        let d = dev_wifi();
-        let lines = line_for(Some(&d), false, &t);
-        let s: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert!(s.starts_with("○ "));
-    }
-
-    #[test]
-    fn missing_device_shows_aucun() {
-        let t = Theme::TOKYO_NIGHT;
-        let lines = line_for(None, false, &t);
-        assert_eq!(lines.len(), 1);
-        let s: String = lines[0].spans.iter().map(|s| s.content.as_ref()).collect();
-        assert_eq!(s, "(aucun)");
+    fn empty_state_shows_aucun() {
+        let s = AppState::new("a".into(), "d".into());
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 4));
+        render_devices(Rect::new(0, 0, 60, 4), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        let mut text = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            text.push('\n');
+        }
+        assert!(text.contains("aucun"), "missing aucun:\n{text}");
     }
 
     #[test]
     fn reconnecting_indicator_appears_when_persistent_banner_is_reconnecting() {
-        use crate::app::BannerKind;
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::Discovered(dev_wifi())));
-        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::WifiReconnecting { attempt: 2 }));
-        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 6));
-        render_devices(Rect::new(0, 0, 60, 6), &mut buf, &s, &Theme::TOKYO_NIGHT);
-        let mut full = String::new();
+        add_session(&mut s, "1.2.3.4:5555", DeviceSessionState::Ready);
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting { attempt: 2 }));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 8));
+        render_devices(Rect::new(0, 0, 60, 8), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        let mut text = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width {
-                full.push_str(buf.get(x, y).symbol());
-            }
-            full.push('\n');
+            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            text.push('\n');
         }
-        assert!(full.contains("↻"), "expected reconnecting indicator, got:\n{full}");
-        assert!(full.contains("#2"));
-        // Suppress unused BannerKind import warning under all configurations.
-        let _ = BannerKind::Info;
+        assert!(text.contains("↻"), "expected reconnecting indicator, got:\n{text}");
+        assert!(text.contains("#2"));
     }
 }
