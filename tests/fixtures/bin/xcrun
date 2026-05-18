@@ -1,0 +1,29 @@
+#!/bin/sh
+# Faux xcrun for fl integration tests.
+# Routes:
+#   xcrun devicectl list devices --json-output - -> $FL_XCRUN_DEVICECTL_SCENARIO
+#   xcrun simctl list devices --json            -> $FL_XCRUN_SIMCTL_SCENARIO
+
+cmd="$1"
+sub="$2"
+case "$cmd" in
+  devicectl)
+    if [ "$sub" = "list" ]; then
+      if [ -n "$FL_XCRUN_DEVICECTL_SCENARIO" ] && [ -f "$FL_XCRUN_DEVICECTL_SCENARIO" ]; then
+        cat "$FL_XCRUN_DEVICECTL_SCENARIO"
+      else
+        echo '{"result":{"devices":[]}}'
+      fi
+    fi
+    ;;
+  simctl)
+    if [ "$sub" = "list" ]; then
+      if [ -n "$FL_XCRUN_SIMCTL_SCENARIO" ] && [ -f "$FL_XCRUN_SIMCTL_SCENARIO" ]; then
+        cat "$FL_XCRUN_SIMCTL_SCENARIO"
+      else
+        echo '{"devices":{}}'
+      fi
+    fi
+    ;;
+esac
+exit 0

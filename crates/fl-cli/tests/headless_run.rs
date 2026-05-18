@@ -229,3 +229,33 @@ fn headless_multi_device_emits_two_app_started() {
     let starts = out.matches("AppStarted").count();
     assert!(starts >= 2, "expected ≥ 2 AppStarted events, output:\n{out}");
 }
+
+#[test]
+fn headless_ios_run_emits_app_started() {
+    ensure_binary_built();
+    let _ = std::fs::remove_dir_all("/tmp/fl-fake-adb");
+
+    let pubspec = pubspec_in_workspace();
+    let devicectl_scenario = fixtures().join("scenarios/ios_one_device.json");
+    let flutter_scenario = fixtures().join("scenarios/nominal.txt");
+
+    // Empty adb devices list — only iOS device present.
+    let empty_adb = workspace_root().join("target/test-empty-adb-devices.txt");
+    std::fs::write(&empty_adb, "List of devices attached\n").unwrap();
+
+    let out = run_fl_with_env(
+        &[
+            "run",
+            "--no-picker", "--no-wifi",
+            "--device", "00008140-0011002233",
+            "--project", pubspec.to_str().unwrap(),
+        ],
+        &[
+            ("FL_ADB_FIXTURE_DEVICES", &empty_adb),
+            ("FL_XCRUN_DEVICECTL_SCENARIO", &devicectl_scenario),
+            ("FL_FLUTTER_SCENARIO", &flutter_scenario),
+        ],
+    );
+    assert!(out.contains("AppStarted"), "missing AppStarted, output:\n{out}");
+    assert!(!out.contains("pre-pair failed"), "iOS device wrongly triggered pre-pair:\n{out}");
+}

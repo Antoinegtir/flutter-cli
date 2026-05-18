@@ -1,0 +1,18 @@
+{
+  "result": {
+    "devices": [
+      {
+        "identifier": "00008140-0011002233",
+        "deviceProperties": {
+          "name": "iPhone 15",
+          "osVersionNumber": "17.4.1",
+          "platform": "iOS"
+        },
+        "connectionProperties": {
+          "transportType": "wired",
+          "tunnelState": "connected"
+        }
+      }
+    ]
+  }
+}
