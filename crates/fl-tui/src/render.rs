@@ -9,14 +9,24 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-const FOOTER: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [w] wifi  [/] filter  [c] clear  [?] help  [q] quit ";
+const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [w] wifi  [/] filter  [c] clear  [?] help  [q] quit ";
+const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [q] quit ";
+const FOOTER_SHORT: &str = " r reload · R restart · q quit ";
+
+const MIN_WIDTH: u16 = 50;
+const MIN_HEIGHT: u16 = 12;
+const NARROW_WIDTH: u16 = 90;
 
 pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    if area.width < MIN_WIDTH || area.height < MIN_HEIGHT {
+        render_too_small(area, buf, theme);
+        return;
+    }
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),
-            Constraint::Min(8),
+            Constraint::Min(6),
             Constraint::Length(1),
         ])
         .split(area);
@@ -28,13 +38,25 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     }
 }
 
+fn render_too_small(area: Rect, buf: &mut Buffer, theme: &Theme) {
+    use ratatui::layout::Alignment;
+    let msg = format!(
+        "Terminal too small ({}×{}). Need at least {MIN_WIDTH}×{MIN_HEIGHT}.",
+        area.width, area.height
+    );
+    let line = Line::styled(msg, Style::default().fg(theme.warn).bg(theme.bg));
+    Paragraph::new(line)
+        .alignment(Alignment::Center)
+        .render(area, buf);
+}
+
 fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     let device = match state.active_sessions.len() {
         0 => "no device".to_string(),
         1 => state.active_sessions[0].display_name.clone(),
         n => format!("{n} devices"),
     };
-    let title = format!(" fl ── {} · {} · {} ", state.app_name, state.mode, device);
+    let full_title = format!(" fl ── {} · {} · {} ", state.app_name, state.mode, device);
     let alpha = state.reload_flash_alpha();
     let bg = if alpha > 0.0 {
         lerp(theme.bg, theme.success, alpha * 0.4)
@@ -47,25 +69,63 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         .style(Style::default().fg(theme.fg).bg(bg));
     let inner = block.inner(area);
     block.render(area, buf);
+    let title = truncate_to_width(&full_title, inner.width as usize);
     Paragraph::new(Line::styled(title, theme.header())).render(inner, buf);
 }
 
 fn render_body(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
-    let cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(area);
-    panels::logs::render_logs(cols[0], buf, state, theme);
-    let right = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-        .split(cols[1]);
-    panels::performance::render_performance(right[0], buf, state, theme);
-    panels::devices::render_devices(right[1], buf, state, theme);
+    if area.width < NARROW_WIDTH {
+        // Narrow terminal: stack panels vertically.
+        // Logs gets the largest share since it's the most useful in cramped layouts.
+        let rows = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Percentage(55),
+                Constraint::Percentage(25),
+                Constraint::Percentage(20),
+            ])
+            .split(area);
+        panels::logs::render_logs(rows[0], buf, state, theme);
+        panels::performance::render_performance(rows[1], buf, state, theme);
+        panels::devices::render_devices(rows[2], buf, state, theme);
+    } else {
+        // Standard horizontal split.
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(area);
+        panels::logs::render_logs(cols[0], buf, state, theme);
+        let right = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
+            .split(cols[1]);
+        panels::performance::render_performance(right[0], buf, state, theme);
+        panels::devices::render_devices(right[1], buf, state, theme);
+    }
 }
 
 fn render_footer(area: Rect, buf: &mut Buffer, theme: &Theme) {
-    Paragraph::new(Line::styled(FOOTER, theme.dimmed())).render(area, buf);
+    let chosen = if area.width as usize >= FOOTER_FULL.chars().count() {
+        FOOTER_FULL
+    } else if area.width as usize >= FOOTER_MEDIUM.chars().count() {
+        FOOTER_MEDIUM
+    } else {
+        FOOTER_SHORT
+    };
+    Paragraph::new(Line::styled(chosen, theme.dimmed())).render(area, buf);
+}
+
+fn truncate_to_width(s: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    if max_chars == 1 {
+        return "…".to_string();
+    }
+    s.chars().take(max_chars - 1).collect::<String>() + "…"
 }
 
 fn render_banner(area: Rect, buf: &mut Buffer, msg: &str, kind: BannerKind, theme: &Theme) {
@@ -105,6 +165,63 @@ mod tests {
         render(Rect::new(0, 0, 80, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
         let header_cell = buf.get(1, 1);
         let _ = header_cell.symbol().to_owned();
+    }
+
+    fn dump(buf: &Buffer) -> String {
+        let mut out = String::new();
+        for y in 0..buf.area.height {
+            for x in 0..buf.area.width { out.push_str(buf.get(x, y).symbol()); }
+            out.push('\n');
+        }
+        out
+    }
+
+    #[test]
+    fn very_small_terminal_shows_too_small_message() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 30, 8));
+        let state = AppState::new("my_app".into(), "debug".into());
+        render(Rect::new(0, 0, 30, 8), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        assert!(text.contains("too small"), "missing too-small message, got:\n{text}");
+    }
+
+    #[test]
+    fn narrow_terminal_uses_vertical_stack() {
+        // 70-wide is below NARROW_WIDTH (90) → vertical stack.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 70, 30));
+        let state = AppState::new("my_app".into(), "debug".into());
+        render(Rect::new(0, 0, 70, 30), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        // All three panel titles must be present.
+        assert!(text.contains("Logs"), "missing Logs panel");
+        assert!(text.contains("Performance"), "missing Performance panel");
+        assert!(text.contains("Devices"), "missing Devices panel");
+    }
+
+    #[test]
+    fn footer_falls_back_to_short_when_terminal_is_narrow() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 60, 20));
+        let state = AppState::new("my_app".into(), "debug".into());
+        render(Rect::new(0, 0, 60, 20), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        // FOOTER_SHORT contains "r reload · R restart"
+        assert!(
+            text.contains("r reload") || text.contains("[r] reload"),
+            "footer missing reload entry:\n{text}"
+        );
+    }
+
+    #[test]
+    fn truncate_to_width_keeps_short_strings_intact() {
+        assert_eq!(truncate_to_width("hello", 10), "hello");
+        assert_eq!(truncate_to_width("hello", 5), "hello");
+    }
+
+    #[test]
+    fn truncate_to_width_ellipsizes_long_strings() {
+        assert_eq!(truncate_to_width("hello world", 8), "hello w…");
+        assert_eq!(truncate_to_width("hello", 1), "…");
+        assert_eq!(truncate_to_width("hello", 0), "");
     }
 
     #[test]

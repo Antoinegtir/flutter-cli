@@ -25,4 +25,4 @@ expression: dump
 │                                                          ││                                      │
 │                                                          ││                                      │
 └──────────────────────────────────────────────────────────┘└──────────────────────────────────────┘
- [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [w] wifi  [/] filter  [c] clear  [?] h
+ [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [q] quit
