@@ -133,6 +133,23 @@ impl BuildTarget {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub enum TestResult {
+    Success,
+    Failure,
+    Error,
+    Skipped,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum TestEvent {
+    SuiteStart { path: String },
+    TestStarted { id: u64, name: String },
+    TestDone { id: u64, name: String, result: TestResult, duration_ms: u64 },
+    Error { id: Option<u64>, message: String, stack: Option<String> },
+    AllDone { success: bool, passed: u32, failed: u32, skipped: u32 },
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
