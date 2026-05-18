@@ -106,13 +106,20 @@ impl AppState {
                 self.show_banner(BannerKind::Success, "WiFi pairing OK");
             }
             DeviceEvent::WifiReconnecting { attempt } => {
-                self.show_banner(BannerKind::Warn, &format!("Reconnecting WiFi (#{attempt})"));
+                self.show_persistent_banner(
+                    BannerKind::Warn,
+                    &format!("Reconnecting WiFi (#{attempt})"),
+                );
             }
             DeviceEvent::WifiReconnected => {
+                self.clear_persistent_banner();
                 self.show_banner(BannerKind::Success, "WiFi reconnected");
             }
-            DeviceEvent::IpChanged { serial: _, old_ip: _, new_ip: _ } => {
-                self.show_banner(BannerKind::Info, "Device IP changed");
+            DeviceEvent::IpChanged { new_ip, .. } => {
+                self.show_banner(BannerKind::Success, &format!("New IP: {new_ip}"));
+                if let Some(d) = self.active_device.as_mut() {
+                    d.ip = Some(new_ip.clone());
+                }
             }
             DeviceEvent::Error(msg) => {
                 self.show_banner(BannerKind::Error, &msg);
@@ -308,5 +315,46 @@ mod tests {
         s.show_persistent_banner(BannerKind::Warn, "sticky");
         s.clear_persistent_banner();
         assert!(s.banner.is_none(), "persistent banner should be cleared");
+    }
+
+    #[test]
+    fn wifi_reconnecting_sets_persistent_warn_banner() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting { attempt: 3 }));
+        let b = s.banner.as_ref().expect("banner present");
+        assert!(matches!(b.kind, BannerKind::Warn));
+        assert!(b.duration.is_none(), "should be persistent");
+        assert!(b.message.contains("#3"));
+    }
+
+    #[test]
+    fn wifi_reconnected_clears_persistent_and_shows_success() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting { attempt: 1 }));
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnected));
+        let b = s.banner.as_ref().expect("banner present");
+        assert!(matches!(b.kind, BannerKind::Success));
+        assert!(b.duration.is_some(), "should be transient");
+    }
+
+    #[test]
+    fn ipchanged_updates_active_device_ip() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::Discovered(Device {
+            serial: "1.2.3.4:5555".into(),
+            name: "Pixel".into(),
+            model: None,
+            connection: fl_core::ConnectionKind::Wifi,
+            state: fl_core::DeviceState::Online,
+            ip: Some("1.2.3.4".into()),
+            android_version: None,
+            battery: None,
+        })));
+        s.apply(AppEvent::Device(DeviceEvent::IpChanged {
+            serial: "1.2.3.4:5555".into(),
+            old_ip: "1.2.3.4".into(),
+            new_ip: "10.0.0.5".into(),
+        }));
+        assert_eq!(s.active_device.as_ref().unwrap().ip.as_deref(), Some("10.0.0.5"));
     }
 }
