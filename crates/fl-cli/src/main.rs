@@ -3,6 +3,7 @@ mod clean_cmd;
 mod cli;
 mod devices_cmd;
 mod doctor_cmd;
+mod multi;
 mod pub_cmd;
 mod run_cmd;
 mod test_cmd;
