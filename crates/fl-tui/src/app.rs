@@ -303,6 +303,7 @@ impl AppState {
                 self.show_banner(BannerKind::Info, "Hot reload requested (VM Service not yet wired)");
             }
             fl_core::KeyEvent::Char('R') => {
+                self.flash_reload();
                 self.show_banner(BannerKind::Info, "Hot restart requested (VM Service not yet wired)");
             }
             fl_core::KeyEvent::Char('b') => {
@@ -371,7 +372,9 @@ impl AppState {
         match self.last_reload_at {
             Some(t) => {
                 let ms = t.elapsed().as_millis() as f32;
-                (1.0 - ms / 200.0).clamp(0.0, 1.0)
+                // 1500 ms so the "Refresh…" shimmer in the header has time
+                // to actually play through one sweep before fading out.
+                (1.0 - ms / 1500.0).clamp(0.0, 1.0)
             }
             None => 0.0,
         }

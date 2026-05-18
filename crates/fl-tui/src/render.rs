@@ -73,16 +73,32 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     let inner = block.inner(area);
     block.render(area, buf);
 
-    // Single-row header: title on the left, chronometer right-aligned.
+    // Status label that shimmers while something is happening.
+    // `building…` during compile; `refresh…` briefly after a hot reload.
+    let status_text: Option<&'static str> = if state.compile_finished.is_none() {
+        Some("Building…")
+    } else if state.reload_flash_alpha() > 0.05 {
+        Some("Refresh…")
+    } else {
+        None
+    };
+
+    // Three segments: title (flex) | status (shimmer, fixed) | chrono (right-aligned).
     let chrono_text = format!("{chrono_icon} {elapsed}");
-    let chrono_width = chrono_text.chars().count() as u16 + 2; // padding
-    let title_width = inner.width.saturating_sub(chrono_width);
+    let chrono_width = chrono_text.chars().count() as u16 + 2;
+    let status_width = status_text.map(|s| s.chars().count() as u16 + 2).unwrap_or(0);
+    let title_width = inner.width.saturating_sub(chrono_width).saturating_sub(status_width);
 
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(title_width), Constraint::Length(chrono_width)])
+        .constraints([
+            Constraint::Length(title_width),
+            Constraint::Length(status_width),
+            Constraint::Length(chrono_width),
+        ])
         .split(inner);
 
+    // Title.
     let title = format!(" fl ── {} · {} · {}", state.app_name, state.mode, device);
     let title = truncate_to_width(&title, cols[0].width as usize);
     Paragraph::new(Line::styled(
@@ -92,12 +108,55 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     ))
     .render(cols[0], buf);
 
+    // Shimmering status.
+    if let Some(s) = status_text {
+        let phase = shimmer_phase(state.started_at.elapsed());
+        let line = shimmer_line(s, theme.dim, theme.accent, phase, bg);
+        Paragraph::new(line)
+            .alignment(ratatui::layout::Alignment::Center)
+            .render(cols[1], buf);
+    }
+
+    // Chronometer.
     Paragraph::new(Line::styled(
         format!("{chrono_text} "),
         Style::default().fg(chrono_color).bg(bg),
     ))
     .alignment(ratatui::layout::Alignment::Right)
-    .render(cols[1], buf);
+    .render(cols[2], buf);
+}
+
+/// Animation phase in `[0, 1)` cycling once every 1.5 s. Used by the
+/// shimmer effect on the status label.
+fn shimmer_phase(elapsed: std::time::Duration) -> f32 {
+    let ms = elapsed.as_millis() as f32;
+    (ms / 1500.0).fract()
+}
+
+/// Build a `Line` whose characters fade between `dim` and `accent` along a
+/// sweep position determined by `phase`. The sweep moves left→right and
+/// loops back to the start.
+fn shimmer_line(
+    text: &str,
+    dim: ratatui::style::Color,
+    accent: ratatui::style::Color,
+    phase: f32,
+    bg: ratatui::style::Color,
+) -> Line<'static> {
+    use ratatui::text::Span;
+    let n = text.chars().count() as f32;
+    let head = phase * (n + 6.0) - 3.0; // sweep slightly off-screen at both ends
+    let spans: Vec<Span<'static>> = text
+        .chars()
+        .enumerate()
+        .map(|(i, c)| {
+            let dist = (head - i as f32).abs();
+            let t = (1.0 - (dist / 3.5)).clamp(0.0, 1.0);
+            let color = lerp(dim, accent, t);
+            Span::styled(c.to_string(), Style::default().fg(color).bg(bg))
+        })
+        .collect();
+    Line::from(spans)
 }
 
 fn format_elapsed(d: std::time::Duration) -> String {
