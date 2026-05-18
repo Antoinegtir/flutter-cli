@@ -24,40 +24,81 @@ pub async fn run(project: Option<PathBuf>, device: Option<String>, no_wifi: bool
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(256);
     let (keys_tx, mut keys_rx) = mpsc::channel::<FlKey>(64);
 
-    let runner = TokioRunner;
-    let target_serial = match device {
-        Some(s) => s,
+    let runner_arc = std::sync::Arc::new(TokioRunner);
+    let (target_serial, usb_serial_opt, paired_target) = match device {
+        Some(s) => (s, None, None),
         None => {
-            let out = runner.run("adb", &["devices", "-l"]).await?;
+            let out = runner_arc.run("adb", &["devices", "-l"]).await?;
             let list = parse_devices_l(&out.stdout);
             let usb = list.iter().find(|d| matches!(d.connection, fl_core::ConnectionKind::Usb));
-            let chosen = match (usb, no_wifi) {
-                (Some(d), false) => match pre_pair_wifi(&runner, &d.serial, 5555).await {
+            match (usb, no_wifi) {
+                (Some(d), false) => match pre_pair_wifi(runner_arc.as_ref(), &d.serial, 5555).await {
                     Ok(t) => {
                         event_tx.send(AppEvent::Device(DeviceEvent::WifiPaired {
                             serial: d.serial.clone(),
                             ip: t.ip.clone(),
                             port: t.port,
                         })).await.ok();
-                        t.serial()
+                        (t.serial(), Some(d.serial.clone()), Some(t))
                     }
                     Err(e) => {
                         event_tx.send(AppEvent::Device(DeviceEvent::Error(format!("pre-pair failed: {e}")))).await.ok();
-                        d.serial.clone()
+                        (d.serial.clone(), Some(d.serial.clone()), None)
                     }
                 },
-                (Some(d), true) => d.serial.clone(),
-                (None, _) => list
-                    .first()
-                    .map(|d| d.serial.clone())
-                    .ok_or_else(|| anyhow!("no attached device"))?,
-            };
-            chosen
+                (Some(d), true) => (d.serial.clone(), Some(d.serial.clone()), None),
+                (None, _) => (
+                    list.first()
+                        .map(|d| d.serial.clone())
+                        .ok_or_else(|| anyhow!("no attached device"))?,
+                    None,
+                    None,
+                ),
+            }
         }
+    };
+
+    // Resolve device name for mDNS filtering (best-effort).
+    let device_name = if let Some(serial) = usb_serial_opt.as_deref() {
+        runner_arc
+            .run("adb", &["-s", serial, "shell", "getprop", "ro.product.model"])
+            .await
+            .ok()
+            .map(|o| o.stdout.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| target_serial.clone())
+    } else {
+        target_serial.clone()
+    };
+
+    // Spawn the ReconnectManager only when we have a WifiTarget.
+    let reconnect_input: Option<tokio::sync::mpsc::Sender<fl_adb::Input>> = if let Some(target) = paired_target.clone() {
+        let setup = fl_adb::ManagerSetup { target, device_name: device_name.clone() };
+        let (rc_out_tx, mut rc_out_rx) = tokio::sync::mpsc::channel::<DeviceEvent>(64);
+        let handle = fl_adb::spawn(setup, runner_arc.clone(), rc_out_tx);
+
+        // Forward Reconnect outputs to the global event channel.
+        let tx = event_tx.clone();
+        tokio::spawn(async move {
+            while let Some(ev) = rc_out_rx.recv().await {
+                tx.send(AppEvent::Device(ev)).await.ok();
+            }
+        });
+
+        // Spawn mDNS listener (silently disable if it fails to start).
+        match fl_adb::mdns::spawn(device_name.clone(), handle.input_tx.clone()) {
+            Ok(_join) => {}
+            Err(e) => tracing::warn!("mDNS listener failed to start: {e}"),
+        }
+
+        Some(handle.input_tx)
+    } else {
+        None
     };
 
     {
         let tx = event_tx.clone();
+        let reconnect_tx = reconnect_input.clone();
         tokio::spawn(async move {
             let (dev_tx, mut dev_rx) = mpsc::channel(32);
             tokio::spawn(async move {
@@ -66,6 +107,17 @@ pub async fn run(project: Option<PathBuf>, device: Option<String>, no_wifi: bool
                 }
             });
             while let Some(ev) = dev_rx.recv().await {
+                if let Some(rcx) = reconnect_tx.as_ref() {
+                    match &ev {
+                        DeviceEvent::Lost { serial } => {
+                            rcx.send(fl_adb::Input::DeviceLost { serial: serial.clone() }).await.ok();
+                        }
+                        DeviceEvent::Discovered(d) => {
+                            rcx.send(fl_adb::Input::DeviceDiscovered { serial: d.serial.clone() }).await.ok();
+                        }
+                        _ => {}
+                    }
+                }
                 tx.send(AppEvent::Device(ev)).await.ok();
             }
         });
