@@ -26,6 +26,9 @@ pub struct DeviceSession {
     pub daemon: Arc<Mutex<Option<FlutterDaemon>>>,
     pub vm_client: Arc<Mutex<Option<VmServiceClient>>>,
     pub isolate_id: Arc<Mutex<Option<String>>>,
+    /// Captured from the Flutter daemon's first AppStarted event. Needed to
+    /// send `app.restart` JSON-RPC back over the daemon's stdin.
+    pub app_id: Arc<Mutex<Option<String>>>,
 }
 
 impl DeviceSession {
@@ -38,6 +41,7 @@ impl DeviceSession {
             daemon: Arc::new(Mutex::new(None)),
             vm_client: Arc::new(Mutex::new(None)),
             isolate_id: Arc::new(Mutex::new(None)),
+            app_id: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -105,6 +109,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let event_tx_logs = event_tx.clone();
     let vm_client_slot = session.vm_client.clone();
     let isolate_slot = session.isolate_id.clone();
+    let app_id_slot = session.app_id.clone();
     tokio::spawn(async move {
         let mut vm_connected = false;
         while let Some(ev) = flutter_rx.recv().await {
@@ -113,11 +118,14 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                     level,
                     message: format!("[{short_for_logs}] {message}"),
                 },
-                FlutterEvent::AppStarted { ref vm_service_uri, .. } => {
+                FlutterEvent::AppStarted { ref app_id, ref vm_service_uri } => {
                     event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
                         serial: serial_for_state.clone(),
                         state: DeviceSessionState::Ready,
                     })).await.ok();
+                    if !app_id.is_empty() {
+                        *app_id_slot.lock().await = Some(app_id.clone());
+                    }
                     // First AppStarted with a non-empty URI: kick off VM Service.
                     if !vm_connected && !vm_service_uri.is_empty() {
                         vm_connected = true;
@@ -221,7 +229,49 @@ fn connect_vm_service(
     });
 }
 
-pub async fn broadcast_key(key: FlKey, sessions: &[DeviceSession], events: &mpsc::Sender<AppEvent>) {
+pub async fn broadcast_key(
+    key: FlKey,
+    sessions: &[DeviceSession],
+    events: &mpsc::Sender<AppEvent>,
+    brightness_dark: bool,
+) {
+    // Hot reload + hot restart go through the Flutter daemon's stdin
+    // (`app.restart` JSON-RPC) — the VM Service doesn't expose hot restart.
+    if matches!(key, FlKey::Char('r') | FlKey::Char('R')) {
+        let full = matches!(key, FlKey::Char('R'));
+        for s in sessions {
+            let short = s.short_name.clone();
+            let app_id_opt = s.app_id.lock().await.clone();
+            let Some(app_id) = app_id_opt else {
+                events.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Warn,
+                    message: format!("[{short}] no app_id yet, can't restart"),
+                })).await.ok();
+                continue;
+            };
+            let mut daemon_guard = s.daemon.lock().await;
+            if let Some(d) = daemon_guard.as_mut() {
+                match d.send_app_restart(&app_id, full).await {
+                    Ok(()) => {
+                        let kind = if full { "restart" } else { "reload" };
+                        events.send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Info,
+                            message: format!("[{short}] {kind} requested"),
+                        })).await.ok();
+                    }
+                    Err(e) => {
+                        events.send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Error,
+                            message: format!("[{short}] restart failed: {e}"),
+                        })).await.ok();
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // Brightness / paint / platform / perf are VM Service extensions.
     let mut futures = Vec::new();
     for s in sessions {
         let vm = s.vm_client.lock().await.clone();
@@ -231,9 +281,7 @@ pub async fn broadcast_key(key: FlKey, sessions: &[DeviceSession], events: &mpsc
         let key_copy = key;
         futures.push(async move {
             let res = match key_copy {
-                FlKey::Char('r') => client.hot_reload(&iso).await,
-                FlKey::Char('R') => client.hot_restart(&iso).await,
-                FlKey::Char('b') => client.toggle_brightness(&iso, true).await,
+                FlKey::Char('b') => client.toggle_brightness(&iso, brightness_dark).await,
                 FlKey::Char('p') => client.toggle_debug_paint(&iso, true).await,
                 FlKey::Char('o') => client.toggle_platform(&iso, false).await,
                 FlKey::Char('P') => client.toggle_performance_overlay(&iso, true).await,
@@ -245,20 +293,11 @@ pub async fn broadcast_key(key: FlKey, sessions: &[DeviceSession], events: &mpsc
     let results = futures_util::future::join_all(futures).await;
     for outcome in results.into_iter().flatten() {
         let (short, err) = outcome;
-        match err {
-            None if matches!(key, FlKey::Char('r')) => {
-                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Info,
-                    message: format!("[{short}] reload OK"),
-                })).await.ok();
-            }
-            Some(e) => {
-                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Error,
-                    message: format!("[{short}] {key:?} -> {e}"),
-                })).await.ok();
-            }
-            _ => {}
+        if let Some(e) = err {
+            events.send(AppEvent::Flutter(FlutterEvent::Log {
+                level: LogLevel::Error,
+                message: format!("[{short}] {key:?} -> {e}"),
+            })).await.ok();
         }
     }
 }
@@ -414,10 +453,11 @@ pub async fn run_multi(
     let (keys_tx, mut keys_rx) = mpsc::channel::<FlKey>(16);
 
     // Key dispatcher: each keystroke from the TUI is broadcast to every
-    // session's VM Service client (hot reload, restart, theme, paint, ...).
+    // session's daemon (r/R) or VM Service (b/p/o/P).
     {
         let sessions_for_keys: Vec<DeviceSession> = sessions.to_vec();
         let event_tx_keys = event_tx.clone();
+        let brightness = state.brightness_handle();
         tokio::spawn(async move {
             while let Some(k) = keys_rx.recv().await {
                 if matches!(
@@ -425,7 +465,8 @@ pub async fn run_multi(
                     FlKey::Char('r') | FlKey::Char('R') | FlKey::Char('b')
                   | FlKey::Char('p') | FlKey::Char('o') | FlKey::Char('P')
                 ) {
-                    broadcast_key(k, &sessions_for_keys, &event_tx_keys).await;
+                    let dark = brightness.load(std::sync::atomic::Ordering::Relaxed);
+                    broadcast_key(k, &sessions_for_keys, &event_tx_keys, dark).await;
                 }
             }
         });

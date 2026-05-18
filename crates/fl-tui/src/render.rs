@@ -98,8 +98,13 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         ])
         .split(inner);
 
-    // Title.
-    let title = format!(" fl ── {} · {} · {}", state.app_name, state.mode, device);
+    // Title with brightness indicator.
+    let brightness_icon = if state.brightness_dark.load(std::sync::atomic::Ordering::Relaxed) {
+        '☾'
+    } else {
+        '☀'
+    };
+    let title = format!(" {brightness_icon}  fl ── {} · {} · {}", state.app_name, state.mode, device);
     let title = truncate_to_width(&title, cols[0].width as usize);
     Paragraph::new(Line::styled(
         title,

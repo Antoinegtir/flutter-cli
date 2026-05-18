@@ -52,6 +52,9 @@ pub struct AppState {
     pub compile_finished: Option<Duration>,
     /// If false, DEBUG log lines are hidden in the panel. Toggle with `v`.
     pub verbose: bool,
+    /// Shared with the key dispatcher task — true = dark, false = light.
+    /// Cycled by `b`; the header renders ☀/☾ based on this.
+    pub brightness_dark: std::sync::Arc<std::sync::atomic::AtomicBool>,
     pub quitting: bool,
 }
 
@@ -92,8 +95,15 @@ impl AppState {
             started_at: Instant::now(),
             compile_finished: None,
             verbose: false,
+            brightness_dark: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             quitting: false,
         }
+    }
+
+    /// Clone-able handle to the brightness state, so the multi-device key
+    /// dispatcher in fl-cli can read the same value the TUI displays.
+    pub fn brightness_handle(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+        self.brightness_dark.clone()
     }
 
     /// Duration to display on the chronometer. Live until `compile_finished`
@@ -307,7 +317,11 @@ impl AppState {
                 self.show_banner(BannerKind::Info, "Hot restart");
             }
             fl_core::KeyEvent::Char('b') => {
-                self.show_banner(BannerKind::Info, "Toggle brightness");
+                use std::sync::atomic::Ordering;
+                let was_dark = self.brightness_dark.load(Ordering::Relaxed);
+                self.brightness_dark.store(!was_dark, Ordering::Relaxed);
+                let label = if !was_dark { "☾ dark" } else { "☀ light" };
+                self.show_banner(BannerKind::Info, &format!("Brightness → {label}"));
             }
             fl_core::KeyEvent::Char('p') => {
                 self.show_banner(BannerKind::Info, "Toggle debug paint");

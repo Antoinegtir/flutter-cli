@@ -95,6 +95,21 @@ impl FlutterDaemon {
         Ok(())
     }
 
+    /// Request a hot reload (`full == false`) or hot restart (`full == true`)
+    /// via the Flutter daemon's `app.restart` JSON-RPC. This is the
+    /// canonical path — VM Service does not expose hot restart directly.
+    pub async fn send_app_restart(&mut self, app_id: &str, full: bool) -> anyhow::Result<()> {
+        let payload = format!(
+            r#"[{{"id":1,"method":"app.restart","params":{{"appId":"{app_id}","fullRestart":{full},"pause":false}}}}]"#
+        );
+        if let Some(stdin) = self.stdin.as_mut() {
+            stdin.write_all(payload.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await?;
+        }
+        Ok(())
+    }
+
     /// Wait until the child process exits and return its code.
     pub async fn wait(&mut self) -> anyhow::Result<Option<i32>> {
         let status = self.child.wait().await?;
