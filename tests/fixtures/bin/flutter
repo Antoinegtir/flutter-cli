@@ -1,23 +1,60 @@
 #!/bin/sh
-# Faux flutter --machine emitter. Each scenario file is read line-by-line, with optional sleep prefixes.
-SCENARIO="${FL_FLUTTER_SCENARIO:-}"
-if [ -z "$SCENARIO" ] || [ ! -f "$SCENARIO" ]; then
-  # Default: connected, started, then stopped after a short pause.
-  echo '[{"event":"daemon.connected","params":{"version":"0.6.1"}}]'
-  echo '[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]'
-  sleep 0.2
-  echo '[{"event":"app.stop","params":{"exitCode":0}}]'
-  exit 0
-fi
-while IFS= read -r line; do
-  case "$line" in
-    "SLEEP "*)
-      sleep "$(echo "$line" | awk '{print $2}')"
-      ;;
-    "")
-      ;;
-    *)
-      echo "$line"
-      ;;
-  esac
-done < "$SCENARIO"
+# Faux flutter --machine emitter and stub for non-machine commands.
+# Routing:
+#   flutter run --machine ...        -> SCENARIO from FL_FLUTTER_SCENARIO (existing behaviour)
+#   flutter build <target> --machine -> FL_FLUTTER_BUILD_SCENARIO
+#   flutter test --machine           -> FL_FLUTTER_TEST_SCENARIO
+#   flutter pub get|upgrade          -> FL_FLUTTER_PUB_SCENARIO (raw text)
+#   flutter pub outdated             -> FL_FLUTTER_PUB_OUTDATED_SCENARIO
+#   flutter pub deps --json          -> FL_FLUTTER_PUB_DEPS_SCENARIO
+#   flutter doctor -v                -> FL_FLUTTER_DOCTOR_SCENARIO
+#   flutter clean                    -> no output, exit 0
+
+emit_scenario() {
+  local file="$1"
+  if [ -z "$file" ] || [ ! -f "$file" ]; then
+    return
+  fi
+  while IFS= read -r line; do
+    case "$line" in
+      "SLEEP "*) sleep "$(echo "$line" | awk '{print $2}')" ;;
+      "") ;;
+      *) echo "$line" ;;
+    esac
+  done < "$file"
+}
+
+cmd="$1"
+case "$cmd" in
+  run)
+    if [ -n "$FL_FLUTTER_SCENARIO" ] && [ -f "$FL_FLUTTER_SCENARIO" ]; then
+      emit_scenario "$FL_FLUTTER_SCENARIO"
+    else
+      echo '[{"event":"daemon.connected","params":{"version":"0.6.1"}}]'
+      echo '[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]'
+      sleep 0.2
+      echo '[{"event":"app.stop","params":{"exitCode":0}}]'
+    fi
+    ;;
+  build)
+    emit_scenario "${FL_FLUTTER_BUILD_SCENARIO:-}"
+    ;;
+  test)
+    emit_scenario "${FL_FLUTTER_TEST_SCENARIO:-}"
+    ;;
+  pub)
+    sub="$2"
+    case "$sub" in
+      get|upgrade|add|remove) emit_scenario "${FL_FLUTTER_PUB_SCENARIO:-}" ;;
+      outdated) emit_scenario "${FL_FLUTTER_PUB_OUTDATED_SCENARIO:-}" ;;
+      deps) emit_scenario "${FL_FLUTTER_PUB_DEPS_SCENARIO:-}" ;;
+    esac
+    ;;
+  doctor)
+    emit_scenario "${FL_FLUTTER_DOCTOR_SCENARIO:-}"
+    ;;
+  clean)
+    # No output expected.
+    ;;
+esac
+exit 0
