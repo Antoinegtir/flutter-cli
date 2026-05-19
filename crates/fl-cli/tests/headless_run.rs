@@ -14,9 +14,9 @@ fn fixtures() -> PathBuf {
 
 fn run_fl_with(scenario: &str) -> String {
     let exe = workspace_root()
-        .join("target/debug/fl")
+        .join("target/debug/flutter-cli")
         .canonicalize()
-        .expect("fl binary built — run `cargo build --bin fl` first");
+        .expect("flutter-cli binary built — run `cargo build --bin flutter-cli` first");
     let fixture_bin = fixtures()
         .join("bin")
         .canonicalize()
@@ -50,7 +50,7 @@ fn run_fl_with(scenario: &str) -> String {
 
 fn ensure_binary_built() {
     let status = Command::new(env!("CARGO"))
-        .args(["build", "--bin", "fl"])
+        .args(["build", "--bin", "flutter-cli"])
         .status()
         .expect("cargo build");
     assert!(status.success());
@@ -87,7 +87,7 @@ fn headless_wifi_drop_emits_reconnecting_and_reconnected() {
     // Clean any leftover state from prior runs of the faux adb.
     let _ = std::fs::remove_dir_all("/tmp/fl-fake-adb");
 
-    let exe = workspace_root().join("target/debug/fl").canonicalize().expect("fl binary built");
+    let exe = workspace_root().join("target/debug/flutter-cli").canonicalize().expect("flutter-cli binary built");
     let fixture_bin = fixtures().join("bin").canonicalize().expect("fixtures bin dir");
     let scenario_path = fixtures().join("scenarios/wifi_drop.txt").canonicalize().expect("scenario file");
 
@@ -117,7 +117,7 @@ fn headless_wifi_drop_emits_reconnecting_and_reconnected() {
 }
 
 fn run_fl_with_env(args: &[&str], envs: &[(&str, &std::path::Path)]) -> String {
-    let exe = workspace_root().join("target/debug/fl").canonicalize().expect("fl built");
+    let exe = workspace_root().join("target/debug/flutter-cli").canonicalize().expect("fl built");
     let fixture_bin = fixtures().join("bin").canonicalize().expect("fixtures bin");
     let path = format!(
         "{}:{}",

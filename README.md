@@ -5,7 +5,7 @@
 A modern terminal UI for Flutter — hot reload across N devices, real-time perf, inline scrollback.
 Drops into your shell so `flutter run` *becomes* the dashboard. No new command to learn.
 
-![fl landing](docs/screenshots/landing.png)
+![flutter-cli landing](docs/screenshots/landing.png)
 
 *One line in your `.zshrc` turns `flutter run` into this — welcome banner, inline dashboard, scrollback preserved.*
 
@@ -19,10 +19,10 @@ Drops into your shell so `flutter run` *becomes* the dashboard. No new command t
 curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
 ```
 
-That's it. The script builds the binary, drops it on your `PATH`, and adds **one line** to your shell rc:
+That's it. The installer drops a small helper on your `PATH` and adds **one line** to your shell rc:
 
 ```sh
-eval "$(fl init zsh)"   # zsh / bash / fish all supported
+eval "$(flutter-cli init zsh)"   # zsh / bash / fish all supported
 ```
 
 Reload your shell, then:
@@ -46,9 +46,9 @@ flutter run
 - Drowning in 50,000 lines of scrollback per session.
 - Re-typing the same `flutter run --device emulator-5554 --flavor prod` for the hundredth time.
 
-`fl` fixes that. Same project, same `flutter` binary underneath, dramatically better feedback loop.
+Same project, same `flutter` binary underneath, dramatically better feedback loop.
 
-| | `flutter run` | `fl` (via shim) |
+| | vanilla `flutter run` | with the shim |
 |---|---|---|
 | Multi-device hot reload | one at a time | parallel, single `r` |
 | Per-device FPS / memory | no | yes, live sparklines |
@@ -155,28 +155,28 @@ Live-tracked list with status, IP, battery, OS version. Same data the picker use
 
 ---
 
-## The shell shim
+## How the shim works
 
-The install script adds this to your rc file (idempotent, gated by sentinel comments):
+The installer adds this block to your rc file (idempotent, gated by sentinel comments so removing it is one line away):
 
 ```sh
-# >>> fl shim >>>
-eval "$(fl init zsh)"
-# <<< fl shim <<<
+# >>> flutter-cli shim >>>
+eval "$(flutter-cli init zsh)"
+# <<< flutter-cli shim <<<
 ```
 
-What it actually defines:
+What that `eval` expands to is roughly:
 
 ```sh
 flutter() {
   case "$1" in
-    run|test|build|devices) shift; command fl "$@" ;;
+    run|test|build|devices) shift; command flutter-cli "$@" ;;
     *) command flutter "$@" ;;
   esac
 }
 ```
 
-**That's the whole magic trick.** Four subcommands routed through `fl`, everything else passes through. You can read the full output anytime with `fl init zsh`.
+**That's the whole magic trick.** Four `flutter` subcommands routed through the TUI, everything else passes through to the real binary. Your IDE plugins, CI pipelines, and dotfile zealotry are untouched.
 
 ---
 
@@ -186,10 +186,8 @@ flutter() {
 git clone https://github.com/Antoinegtir/flutter-cli
 cd flutter-cli
 cargo install --path crates/fl-cli
-eval "$(fl init zsh)" >> ~/.zshrc
+echo 'eval "$(flutter-cli init zsh)"' >> ~/.zshrc
 ```
-
-Or use `fl` directly without the shim if you prefer the explicit form (`fl run`, `fl test`, etc.).
 
 ---
 
@@ -210,19 +208,6 @@ Open an issue if you have a use case `flutter run` makes painful — that's exac
 git clone https://github.com/Antoinegtir/flutter-cli
 cd flutter-cli
 cargo test --workspace
-```
-
-The codebase is a Rust workspace organized by responsibility:
-
-```
-crates/
-├── fl-core         shared event types, models
-├── fl-adb          Android device discovery + Wi-Fi pre-pair
-├── fl-ios          iOS device discovery via devicectl
-├── fl-flutter      Flutter daemon JSON-RPC client
-├── fl-vmservice    Dart VM Service WebSocket client
-├── fl-tui          ratatui-based dashboard + views
-└── fl-cli          binary entry point + command dispatch
 ```
 
 PRs welcome — `cargo fmt`, `cargo clippy -D warnings`, and `cargo test --workspace` are checked by CI.

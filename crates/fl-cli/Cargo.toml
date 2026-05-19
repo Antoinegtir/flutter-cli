@@ -10,7 +10,7 @@ repository.workspace = true
 homepage.workspace = true
 
 [[bin]]
-name = "fl"
+name = "flutter-cli"
 path = "src/main.rs"
 
 [dependencies]
@@ -30,3 +30,4 @@ directories.workspace = true
 futures-util.workspace = true
 crossterm.workspace = true
 serde_json.workspace = true
+chrono.workspace = true

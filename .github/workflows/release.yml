@@ -73,7 +73,7 @@ jobs:
           key: ${{ matrix.target }}
 
       - name: cargo build --release
-        run: cargo build --release --locked --bin fl --target ${{ matrix.target }}
+        run: cargo build --release --locked --bin flutter-cli --target ${{ matrix.target }}
 
       - name: Package tarball + checksum
         id: package
@@ -85,9 +85,9 @@ jobs:
           tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
           version="${tag#v}"
           target="${{ matrix.target }}"
-          stage="fl-${version}-${target}"
+          stage="flutter-cli-${version}-${target}"
           mkdir -p "dist/${stage}"
-          cp "target/${target}/release/fl" "dist/${stage}/"
+          cp "target/${target}/release/flutter-cli" "dist/${stage}/"
           cp README.md "dist/${stage}/" 2>/dev/null || true
           cp LICENSE  "dist/${stage}/" 2>/dev/null || true
           tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
@@ -98,7 +98,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fl-${{ matrix.target }}
+          name: flutter-cli-${{ matrix.target }}
           path: |
             ${{ steps.package.outputs.tarball }}
             ${{ steps.package.outputs.checksum }}
@@ -152,137 +152,3 @@ jobs:
               --verify-tag
           fi
 
-  homebrew-update:
-    # Auto-bumps the Homebrew formula in your tap repo every time a
-    # release publishes. Requires a personal access token (PAT) with
-    # `repo` scope stored as the `HOMEBREW_TAP_TOKEN` secret on this
-    # repo, AND a sibling repo named `homebrew-flutter-cli` owned by the same
-    # user/org (override via `HOMEBREW_TAP_REPO` env if you named it
-    # differently, e.g. `homebrew-tap`).
-    #
-    # Skipped silently when the token isn't configured so first-time
-    # release workflows don't fail before the tap exists.
-    name: bump homebrew formula
-    needs: release
-    runs-on: ubuntu-latest
-    if: ${{ !cancelled() && needs.release.result == 'success' }}
-    steps:
-      - name: Skip when tap token is not set
-        id: gate
-        env:
-          TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          if [ -z "$TOKEN" ]; then
-            echo "::notice::HOMEBREW_TAP_TOKEN not set — skipping formula bump"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Download release artifacts
-        if: steps.gate.outputs.skip == 'false'
-        uses: actions/download-artifact@v4
-        with:
-          path: artifacts
-
-      - name: Compute SHA256 per tarball
-        if: steps.gate.outputs.skip == 'false'
-        id: sha
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p dist
-          find artifacts -type f -name "*.tar.gz" -exec cp {} dist/ \;
-          # Emit one output per (os,arch) pair the formula expects.
-          for target in aarch64-apple-darwin x86_64-apple-darwin \
-                        aarch64-unknown-linux-gnu x86_64-unknown-linux-gnu; do
-            file=$(ls dist | grep -- "-${target}\.tar\.gz$" || true)
-            if [ -z "$file" ]; then
-              echo "::warning::missing tarball for ${target} — formula will keep its old SHA"
-              continue
-            fi
-            sha=$(shasum -a 256 "dist/$file" | awk '{print $1}')
-            # Replace dashes with underscores so the value can be used
-            # as a step-output key.
-            key="sha_${target//-/_}"
-            echo "${key}=${sha}" >> "$GITHUB_OUTPUT"
-          done
-
-      - name: Checkout tap repo
-        if: steps.gate.outputs.skip == 'false'
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository_owner }}/${{ env.HOMEBREW_TAP_REPO || 'homebrew-flutter-cli' }}
-          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-          path: tap
-
-      - name: Rewrite Formula/fl.rb
-        if: steps.gate.outputs.skip == 'false'
-        shell: bash
-        env:
-          SHA_ARM_DARWIN:   ${{ steps.sha.outputs.sha_aarch64_apple_darwin }}
-          SHA_X86_DARWIN:   ${{ steps.sha.outputs.sha_x86_64_apple_darwin }}
-          SHA_ARM_LINUX:    ${{ steps.sha.outputs.sha_aarch64_unknown_linux_gnu }}
-          SHA_X86_LINUX:    ${{ steps.sha.outputs.sha_x86_64_unknown_linux_gnu }}
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
-          version="${tag#v}"
-          mkdir -p tap/Formula
-          # Seed the tap from the in-repo template the first time the
-          # formula file doesn't exist yet.
-          if [ ! -f tap/Formula/fl.rb ]; then
-            cp homebrew/fl.rb tap/Formula/fl.rb || true
-          fi
-          formula=tap/Formula/fl.rb
-
-          # Bump version. Use a sentinel comment so the regex stays
-          # tight and we don't accidentally rewrite something else.
-          sed -i.bak -E "s/^(  version )\".*\"$/\1\"${version}\"/" "$formula"
-
-          # Bump each per-target SHA. We anchor on the URL line above
-          # the sha256, picking the first sha256 after each url so the
-          # 4 substitutions don't step on each other.
-          python3 - "$formula" <<'PY'
-          import os, re, sys
-          path = sys.argv[1]
-          src = open(path).read()
-          mapping = {
-              "aarch64-apple-darwin": os.environ.get("SHA_ARM_DARWIN", ""),
-              "x86_64-apple-darwin":  os.environ.get("SHA_X86_DARWIN", ""),
-              "aarch64-unknown-linux-gnu": os.environ.get("SHA_ARM_LINUX", ""),
-              "x86_64-unknown-linux-gnu":  os.environ.get("SHA_X86_LINUX", ""),
-          }
-          for target, sha in mapping.items():
-              if not sha:
-                  continue
-              # Match the url line containing `-<target>.tar.gz` and the
-              # very next sha256 line; replace that sha256.
-              pattern = re.compile(
-                  r'(url\s+"[^"]*-' + re.escape(target) + r'\.tar\.gz"\s*\n\s*sha256\s+")[0-9a-f]+(")'
-              )
-              if not pattern.search(src):
-                  print(f"::warning::no sha256 line found for {target}")
-                  continue
-              src = pattern.sub(r"\g<1>" + sha + r"\g<2>", src)
-          open(path, "w").write(src)
-          PY
-          rm -f "${formula}.bak"
-
-      - name: Commit + push formula
-        if: steps.gate.outputs.skip == 'false'
-        working-directory: tap
-        env:
-          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
-        run: |
-          set -euo pipefail
-          tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
-          git config user.name  "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          if git diff --quiet; then
-            echo "::notice::formula already up to date for ${tag}"
-            exit 0
-          fi
-          git add Formula/fl.rb
-          git commit -m "fl ${tag}"
-          git push

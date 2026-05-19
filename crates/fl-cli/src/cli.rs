@@ -5,7 +5,7 @@ use fl_core::BuildMode;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "fl", version, about = "A modern Flutter CLI with seamless USB→WiFi hot reload")]
+#[command(name = "flutter-cli", version, about = "A modern Flutter CLI with seamless USB→WiFi hot reload")]
 pub struct Cli {
     #[command(subcommand)]
     pub cmd: Cmd,

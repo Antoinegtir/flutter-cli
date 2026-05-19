@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 #
-# fl uninstaller — reverses `install.sh`:
-#   1. Strips the `# >>> fl shim >>>` block from every supported rc
-#      file we find (idempotent — skips files where the block isn't
+# flutter-cli uninstaller — reverses `install.sh`:
+#   1. Strips the `# >>> flutter-cli shim >>>` block from every supported
+#      rc file we find (idempotent — skips files where the block isn't
 #      present, so it's safe to run twice).
-#   2. Removes the `fl` binary via `cargo uninstall`.
+#   2. Removes the `flutter-cli` binary via `cargo uninstall`.
 #
 # Usage:
 #   ./uninstall.sh              # remove shim + binary
-#   ./uninstall.sh --keep-bin   # remove the shim only, leave fl in place
+#   ./uninstall.sh --keep-bin   # remove the shim only, leave the binary
 #   ./uninstall.sh --keep-rc    # remove the binary only, leave rc alone
 
 set -euo pipefail
@@ -38,8 +38,8 @@ done
 
 # ─── 1. strip the shim from rc files ───────────────────────────────
 if [ "$KEEP_RC" = "false" ]; then
-  MARK_START="# >>> fl shim >>>"
-  MARK_END="# <<< fl shim <<<"
+  MARK_START="# >>> flutter-cli shim >>>"
+  MARK_END="# <<< flutter-cli shim <<<"
   RC_CANDIDATES=(
     "$HOME/.zshrc"
     "$HOME/.bashrc"
@@ -62,7 +62,7 @@ if [ "$KEEP_RC" = "false" ]; then
     # Collapse any trailing blank lines we may have introduced.
     awk 'NF{f=1} f' "$tmp" > "$rc"
     rm -f "$tmp"
-    ok "Removed fl shim from $rc"
+    ok "Removed flutter-cli shim from $rc"
   done
 fi
 
@@ -72,16 +72,16 @@ if [ "$KEEP_BIN" = "true" ]; then
 else
   if command -v cargo >/dev/null && cargo install --list 2>/dev/null | grep -q '^fl-cli '; then
     cargo uninstall fl-cli >/dev/null
-    ok "Uninstalled fl binary (cargo uninstall fl-cli)"
+    ok "Uninstalled flutter-cli binary (cargo uninstall fl-cli)"
   else
     # Best-effort fallback if the user installed manually or via a
-    # different toolchain. Look for fl in the usual cargo bin dirs and
-    # the standard system paths, but only remove things that look like
-    # ours (regular file, executable, not a system service).
+    # different toolchain. Look for the binary in the usual cargo bin
+    # dirs and the standard system paths, but only remove things that
+    # look like ours (regular file, executable, not a system service).
     for candidate in \
-      "${CARGO_HOME:-$HOME/.cargo}/bin/fl" \
-      "$HOME/.local/bin/fl" \
-      "/usr/local/bin/fl"
+      "${CARGO_HOME:-$HOME/.cargo}/bin/flutter-cli" \
+      "$HOME/.local/bin/flutter-cli" \
+      "/usr/local/bin/flutter-cli"
     do
       if [ -x "$candidate" ] && [ ! -L "$candidate" ]; then
         rm -f "$candidate"

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 #
-# fl installer — builds the `fl` binary from source via `cargo install`
-# and wires the shell shim into your rc file so `flutter run` /
-# `flutter test` / `flutter build` / `flutter devices` route through
-# the `fl` TUI automatically. Idempotent: re-running upgrades the
-# binary and skips the rc edit if the eval line is already there.
+# flutter-cli installer — builds the `flutter-cli` binary from source
+# via `cargo install` and wires the shell shim into your rc file so
+# `flutter run` / `flutter test` / `flutter build` / `flutter devices`
+# route through the TUI automatically. Idempotent: re-running upgrades
+# the binary and skips the rc edit if the eval line is already there.
 #
 # Usage:
 #   ./install.sh                  # detect everything
@@ -54,18 +54,18 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PREFIX="${FL_PREFIX:-}"
-info "Building fl (release profile)…"
+info "Building flutter-cli (release profile)…"
 if [ -n "$PREFIX" ]; then
   cargo install --path crates/fl-cli --force --root "$PREFIX"
-  BIN="$PREFIX/bin/fl"
+  BIN="$PREFIX/bin/flutter-cli"
 else
   cargo install --path crates/fl-cli --force
   BIN="$(cargo install --path crates/fl-cli --force 2>&1 | awk '/Replacing/ {print $2}' | tr -d '`')"
   # Fallback when the heuristic above fails (e.g. on first install
   # cargo prints "Installing" instead of "Replacing").
-  [ -x "$BIN" ] || BIN="${CARGO_HOME:-$HOME/.cargo}/bin/fl"
+  [ -x "$BIN" ] || BIN="${CARGO_HOME:-$HOME/.cargo}/bin/flutter-cli"
 fi
-ok "fl installed at $BIN"
+ok "flutter-cli installed at $BIN"
 
 # Sanity-check PATH so we don't claim success and leave the user
 # unable to invoke the binary.
@@ -107,25 +107,25 @@ touch "$RC"
 
 # Markers let `uninstall.sh` (and re-runs of this script) find our
 # block to update / remove without disturbing other rc content.
-MARK_START="# >>> fl shim >>>"
-MARK_END="# <<< fl shim <<<"
+MARK_START="# >>> flutter-cli shim >>>"
+MARK_END="# <<< flutter-cli shim <<<"
 
 if grep -Fq "$MARK_START" "$RC"; then
-  info "fl shim already present in $RC — leaving it as-is"
+  info "flutter-cli shim already present in $RC — leaving it as-is"
 else
-  info "Patching $RC with the fl shim…"
+  info "Patching $RC with the flutter-cli shim…"
   if [ "$SHELL_KIND" = "fish" ]; then
-    EVAL_LINE='fl init fish | source'
+    EVAL_LINE='flutter-cli init fish | source'
   else
-    EVAL_LINE="eval \"\$(fl init $SHELL_KIND)\""
+    EVAL_LINE="eval \"\$(flutter-cli init $SHELL_KIND)\""
   fi
   {
     printf "\n%s\n" "$MARK_START"
-    printf "# Auto-added by fl install.sh. Run uninstall.sh to remove.\n"
+    printf "# Auto-added by flutter-cli install.sh. Run uninstall.sh to remove.\n"
     printf "%s\n" "$EVAL_LINE"
     printf "%s\n" "$MARK_END"
   } >> "$RC"
-  ok "Added fl shim to $RC"
+  ok "Added flutter-cli shim to $RC"
 fi
 
 # ─── 3. final summary ──────────────────────────────────────────────
@@ -135,6 +135,6 @@ ${BOLD}Done.${RESET} To activate the shim in your current shell:
 
     ${BOLD}source $RC${RESET}
 
-Then try ${BOLD}flutter run${RESET} — the fl TUI should take over.
+Then try ${BOLD}flutter run${RESET} — the TUI should take over.
 Other ${BOLD}flutter ...${RESET} commands (pub, doctor, clean, …) pass through unchanged.
 EOF

@@ -443,6 +443,7 @@ name = "fl-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "crossterm",
  "directories",
