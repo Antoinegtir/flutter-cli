@@ -2,4 +2,5 @@
 
 pub mod devices;
 pub mod logs;
+pub mod network;
 pub mod performance;

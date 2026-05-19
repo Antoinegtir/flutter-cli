@@ -1,6 +1,6 @@
 //! Devices panel: render one row per active session.
 
-use crate::app::{prefix_color_index, AppState};
+use crate::app::AppState;
 use crate::theme::Theme;
 use fl_core::{ConnectionKind, DeviceSessionState, DeviceSessionSummary};
 use ratatui::buffer::Buffer;
@@ -42,6 +42,9 @@ pub fn platform_icon(platform: &str) -> &'static str {
 }
 
 fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>> {
+    // The coloured bullet alone communicates the state (green dot =
+    // ready, spinner = reloading, etc.) so we drop the textual
+    // "ready" / "connecting" label at the end of the row.
     let (bullet, bullet_color) = match session.state {
         DeviceSessionState::Ready => ('●', theme.success),
         DeviceSessionState::Reloading => ('⠹', theme.warn),
@@ -53,40 +56,27 @@ fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>
         ConnectionKind::Wifi => "🔗 WiFi",
         ConnectionKind::Usb => "⚡ USB",
     };
-    let state_label = match session.state {
-        DeviceSessionState::Ready => "ready",
-        DeviceSessionState::Reloading => "reloading",
-        DeviceSessionState::Connecting => "connecting",
-        DeviceSessionState::Stopped => "stopped",
-        DeviceSessionState::Failed => "failed",
-    };
-    let palette = [theme.accent, theme.cyan, theme.success, theme.warn];
-    let prefix_color = palette[prefix_color_index(&session.short_name)];
     let plat_raw = session.platform.as_deref().unwrap_or("");
     let plat_label: &str = if plat_raw == "ios-simulator" { "ios-sim" } else { plat_raw };
     let plat_glyph = platform_icon(plat_raw);
-    // " {glyph} {label}" with the label left-padded so subsequent
-    // columns (connection icon, state) stay aligned across rows. We
-    // pad to 9 so widths match the previous layout exactly.
     let plat_text = if plat_glyph.is_empty() {
         format!("{plat_label:<9}")
     } else {
         format!("{plat_glyph}  {plat_label:<7}")
     };
-    let row1 = Line::from(vec![
+    // Single row per device — we used to print a second dimmed line
+    // with the device serial / IP, but it duplicated the info from
+    // `display_name` (visually noisy, especially when the display
+    // name *is* the serial because we couldn't resolve a model).
+    let row = Line::from(vec![
         Span::styled(format!("{bullet} "), Style::default().fg(bullet_color).bg(theme.bg)),
-        Span::styled(format!("[{:<8}] ", session.short_name), Style::default().fg(prefix_color).bg(theme.bg)),
         Span::styled(session.display_name.clone(), theme.base()),
         Span::raw("  "),
         Span::styled(plat_text, theme.dimmed()),
         Span::raw(" "),
         Span::styled(icon.to_string(), theme.dimmed()),
-        Span::raw("  "),
-        Span::styled(state_label.to_string(), theme.dimmed()),
     ]);
-    let addr = session.ip.clone().unwrap_or_else(|| session.serial.clone());
-    let row2 = Line::styled(format!("    {addr}"), theme.dimmed());
-    vec![row1, row2]
+    vec![row]
 }
 
 pub fn render_devices(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {

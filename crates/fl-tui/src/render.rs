@@ -9,7 +9,7 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [P] perf  [o] platform  [/] filter  [c] copy 📋  [q] quit ";
+const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [P] perf  [o] platform  [s] snap 📸  [n] net  [d] devtools  [/] filter  [c] copy 📋  [q] quit ";
 const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [q] quit ";
 const FOOTER_SHORT: &str = " r reload · q quit ";
 
@@ -65,19 +65,29 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
 /// Performance + Devices panels in the lower portion of the viewport,
 /// side-by-side on wide terminals and stacked on narrow ones.
 fn render_status_panels(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    // The left panel swaps between Performance and Network based on
+    // `state.show_network` (toggled with `n`). The right panel
+    // (Devices) is always shown.
+    let render_left = |rect: Rect, buf: &mut Buffer| {
+        if state.show_network {
+            panels::network::render_network(rect, buf, state, theme);
+        } else {
+            panels::performance::render_performance(rect, buf, state, theme);
+        }
+    };
     if area.width < NARROW_WIDTH {
         let cols = Layout::default()
             .direction(Direction::Vertical)
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
             .split(area);
-        panels::performance::render_performance(cols[0], buf, state, theme);
+        render_left(cols[0], buf);
         panels::devices::render_devices(cols[1], buf, state, theme);
     } else {
         let cols = Layout::default()
             .direction(Direction::Horizontal)
             .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
             .split(area);
-        panels::performance::render_performance(cols[0], buf, state, theme);
+        render_left(cols[0], buf);
         panels::devices::render_devices(cols[1], buf, state, theme);
     }
 }

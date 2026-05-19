@@ -1,11 +1,32 @@
 //! Convenience wrappers around Flutter's VM Service extensions.
 
-use crate::client::VmServiceClient;
+use crate::client::{decode_b64_bytes, VmServiceClient};
 use serde_json::{json, Value};
 
 impl VmServiceClient {
     pub async fn hot_reload(&self, isolate_id: &str) -> anyhow::Result<Value> {
         self.call("reloadSources", json!({ "isolateId": isolate_id })).await
+    }
+
+    /// Capture the current frame as a PNG via Flutter's
+    /// `_flutter.screenshot` VM Service RPC. Works on every platform
+    /// Flutter supports the moment a VM Service is connected — no
+    /// `adb` / `libimobiledevice` / Xcode tooling required. This is
+    /// the same RPC DevTools' screenshot button calls.
+    pub async fn screenshot_png(&self) -> anyhow::Result<Vec<u8>> {
+        let v = self.call("_flutter.screenshot", json!({})).await?;
+        let b64 = v
+            .get("screenshot")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow::anyhow!("screenshot RPC returned no `screenshot` field"))?;
+        let bytes = decode_b64_bytes(b64);
+        if !bytes.starts_with(&[0x89, b'P', b'N', b'G']) {
+            return Err(anyhow::anyhow!(
+                "screenshot RPC returned {} bytes that don't look like a PNG",
+                bytes.len()
+            ));
+        }
+        Ok(bytes)
     }
 
     pub async fn hot_restart(&self, isolate_id: &str) -> anyhow::Result<Value> {

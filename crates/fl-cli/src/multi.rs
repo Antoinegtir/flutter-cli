@@ -29,6 +29,11 @@ pub struct DeviceSession {
     /// Captured from the Flutter daemon's first AppStarted event. Needed to
     /// send `app.restart` JSON-RPC back over the daemon's stdin.
     pub app_id: Arc<Mutex<Option<String>>>,
+    /// DevTools URL the Flutter daemon emits as `app.devTools: …` once
+    /// the VM Service is up. Captured live from log lines and used by
+    /// the `d` keybind to spawn `open <url>` (or `xdg-open` on Linux)
+    /// in the user's default browser.
+    pub devtools_uri: Arc<Mutex<Option<String>>>,
 }
 
 impl DeviceSession {
@@ -42,6 +47,7 @@ impl DeviceSession {
             vm_client: Arc::new(Mutex::new(None)),
             isolate_id: Arc::new(Mutex::new(None)),
             app_id: Arc::new(Mutex::new(None)),
+            devtools_uri: Arc::new(Mutex::new(None)),
         }
     }
 }
@@ -59,6 +65,11 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     vm_mdns_cache: Option<fl_vmservice::mdns::AdCache>,
     prefer_attached: bool,
     extra_user_args: Vec<String>,
+    // True when more than one device is running in parallel — log
+    // lines then get a `[Device Name] ` prefix so the user can tell
+    // streams apart. Single-device sessions skip the prefix; it's
+    // just noise when there's nothing to disambiguate.
+    multi_device: bool,
 ) -> anyhow::Result<DeviceSession> {
     let display_name = match &usb_serial_to_pair {
         Some(usb) => runner
@@ -120,8 +131,13 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                 t.serial()
             }
             Err(e) => {
+                let pfx = if multi_device {
+                    format!("[{}] ", session.display_name)
+                } else {
+                    String::new()
+                };
                 event_tx.send(AppEvent::Device(DeviceEvent::Error(
-                    format!("[{}] pre-pair failed: {e}", session.short_name),
+                    format!("{pfx}pre-pair failed: {e}"),
                 ))).await.ok();
                 serial_to_run.clone()
             }
@@ -162,12 +178,21 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let daemon = FlutterDaemon::spawn(flutter, project, &final_target, &extra, flutter_tx).await?;
     *session.daemon.lock().await = Some(daemon);
 
-    let short_for_logs = session.short_name.clone();
+    // Use the user-recognisable display name (e.g. "iPhone Antoine",
+    // "SM A145R") and prefix log lines with it ONLY when more than
+    // one device is live. Solo runs get unprefixed logs — cleaner
+    // signal-to-noise when there's no ambiguity.
+    let short_for_logs = if multi_device {
+        format!("[{}] ", session.display_name)
+    } else {
+        String::new()
+    };
     let serial_for_state = session.serial.clone();
     let event_tx_logs = event_tx.clone();
     let vm_client_slot = session.vm_client.clone();
     let isolate_slot = session.isolate_id.clone();
     let app_id_slot = session.app_id.clone();
+    let devtools_slot = session.devtools_uri.clone();
     let daemon_slot = session.daemon.clone();
     let _ = vm_mdns_cache; // No longer used — Wi-Fi takeover removed.
     // Captured for the auto-respawn on USB replug.
@@ -183,15 +208,44 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         // event-bridging state (vm_connected, etc.) resets cleanly
         // between cycles.
         let mut flutter_rx_local = flutter_rx;
+        // Did *any* respawn cycle ever reach `AppStarted`? Used to
+        // decide whether a daemon death is "session lost, recover"
+        // (true) vs. "run never started — config / device error, bail
+        // fast" (false). Without this guard, `flutter run -d
+        // emulator-5554` (no such device) drops into the iOS USB
+        // replug poll and waits forever.
+        let mut ever_started = false;
+        // Timestamps of consecutive daemon deaths. If 3+ happen
+        // within 30s, we give up the respawn loop with a helpful
+        // message — typically means the user's Flutter setup is
+        // broken (NDK mismatch, compile error, …) and looping just
+        // wastes their cycles.
+        let mut death_history: Vec<std::time::Instant> = Vec::new();
+        // Buffer the last few log lines so we can echo them back in
+        // the "session never started" failure message — the actual
+        // reason from Flutter is often the only thing the user
+        // needs to see.
+        let mut last_logs: std::collections::VecDeque<String> =
+            std::collections::VecDeque::with_capacity(6);
         loop {
             let mut vm_connected = false;
             while let Some(ev) = flutter_rx_local.recv().await {
                 let prefixed = match ev {
-                    FlutterEvent::Log { level, message } => FlutterEvent::Log {
-                        level,
-                        message: format!("[{short_for_logs}] {message}"),
-                    },
+                    FlutterEvent::Log { level, message } => {
+                        if let Some(rest) = message.strip_prefix("app.devTools: ") {
+                            *devtools_slot.lock().await = Some(rest.trim().to_string());
+                        }
+                        last_logs.push_back(message.clone());
+                        if last_logs.len() > 6 {
+                            last_logs.pop_front();
+                        }
+                        FlutterEvent::Log {
+                            level,
+                            message: format!("{short_for_logs}{message}"),
+                        }
+                    }
                     FlutterEvent::AppStarted { ref app_id, ref vm_service_uri } => {
+                        ever_started = true;
                         event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
                             serial: serial_for_state.clone(),
                             state: DeviceSessionState::Ready,
@@ -224,6 +278,43 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                 event_tx_logs.send(AppEvent::Flutter(prefixed)).await.ok();
             }
 
+            // Daemon channel closed. Decide whether to recover or
+            // give up before falling into the iOS USB replug poll.
+            if !ever_started {
+                event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Error,
+                    message: format!(
+                        "{short_for_logs}flutter run exited before the app started — \
+                         not a USB unplug, no recovery to do."
+                    ),
+                })).await.ok();
+                for line in last_logs.iter().rev().take(3) {
+                    event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Error,
+                        message: format!("{short_for_logs}  ↳ {line}"),
+                    })).await.ok();
+                }
+                event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Info,
+                    message: format!("{short_for_logs}Press `q` to exit, then run `flutter run` again with a valid `-d <device>`."),
+                })).await.ok();
+                return;
+            }
+            let now = std::time::Instant::now();
+            death_history.retain(|t| now.duration_since(*t) < std::time::Duration::from_secs(30));
+            death_history.push(now);
+            if death_history.len() >= 3 {
+                event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Error,
+                    message: format!(
+                        "{short_for_logs}daemon died 3 times in 30s — giving up. \
+                         Likely a Flutter SDK / project issue, not a USB unplug. \
+                         Try `flutter clean` and look at the errors above."
+                    ),
+                })).await.ok();
+                return;
+            }
+
             // Daemon process exited (USB cable yanked, app crashed,
             // user typed `q`, etc.). Wait for the device to come back
             // on USB before respawning. We DO NOT attempt any Wi-Fi
@@ -243,7 +334,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
                 level: LogLevel::Warn,
                 message: format!(
-                    "[{short_for_logs}] USB session ended — replug the cable to resume \
+                    "{short_for_logs}USB session ended — replug the cable to resume \
                      (keeping TUI alive; logs scrollable with ↑/↓)"
                 ),
             })).await.ok();
@@ -265,7 +356,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                     event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
                         level: LogLevel::Info,
                         message: format!(
-                            "[{short_for_logs}] 🔌 USB reconnected — relaunching app on device"
+                            "{short_for_logs}🔌 USB reconnected — relaunching app on device"
                         ),
                     })).await.ok();
                     break;
@@ -274,7 +365,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                     last_state_logged = Some(false);
                     event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
                         level: LogLevel::Debug,
-                        message: format!("[{short_for_logs}] waiting for USB cable…"),
+                        message: format!("{short_for_logs}waiting for USB cable…"),
                     })).await.ok();
                 }
                 // 3 s is the sweet spot between "feels responsive when
@@ -326,7 +417,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                 Err(e) => {
                     event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
                         level: LogLevel::Error,
-                        message: format!("[{short_for_logs}] respawn failed: {e} — session ended"),
+                        message: format!("{short_for_logs}respawn failed: {e} — session ended"),
                     })).await.ok();
                     return;
                 }
@@ -367,6 +458,8 @@ fn connect_vm_service(
     client_slot: Arc<Mutex<Option<VmServiceClient>>>,
     isolate_slot: Arc<Mutex<Option<String>>>,
     event_tx: mpsc::Sender<AppEvent>,
+    // `"[Device Name] "` (with trailing space) when multiple
+    // devices are live, empty string for a solo run.
     short_name: String,
     serial: String,
 ) {
@@ -390,7 +483,7 @@ fn connect_vm_service(
             Err(e) => {
                 event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                     level: LogLevel::Warn,
-                    message: format!("[{short_name}] VM Service connect failed: {e}"),
+                    message: format!("{short_name}VM Service connect failed: {e}"),
                 })).await.ok();
                 return;
             }
@@ -417,7 +510,7 @@ fn connect_vm_service(
             *client_slot.lock().await = Some(client.clone());
             event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                 level: LogLevel::Info,
-                message: format!("[{short_name}] VM Service ready"),
+                message: format!("{short_name}VM Service ready"),
             })).await.ok();
             // Memory usage is pull-only on the VM Service — poll once a
             // second and synthesize `VmEvent::GcStats` so the Performance
@@ -451,7 +544,7 @@ fn connect_vm_service(
                                 mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                                     level: LogLevel::Debug,
                                     message: format!(
-                                        "[{mem_short}] memory poll: getVM/isolate failed ({e})"
+                                        "{mem_short}memory poll: getVM/isolate failed ({e})"
                                     ),
                                 })).await.ok();
                             }
@@ -469,7 +562,7 @@ fn connect_vm_service(
                                 mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                                     level: LogLevel::Debug,
                                     message: format!(
-                                        "[{mem_short}] memory poll OK: used={used:.1}MB cap={total:.1}MB"
+                                        "{mem_short}memory poll OK: used={used:.1}MB cap={total:.1}MB"
                                     ),
                                 })).await.ok();
                             }
@@ -483,7 +576,7 @@ fn connect_vm_service(
                                 mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                                     level: LogLevel::Warn,
                                     message: format!(
-                                        "[{mem_short}] memory poll returns 0/0 — heapUsage/heapCapacity may be missing in the VM Service response"
+                                        "{mem_short}memory poll returns 0/0 — heapUsage/heapCapacity may be missing in the VM Service response"
                                     ),
                                 })).await.ok();
                             }
@@ -507,7 +600,7 @@ fn connect_vm_service(
                                 mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                                     level: LogLevel::Warn,
                                     message: format!(
-                                        "[{mem_short}] memory poll failed: {e}"
+                                        "{mem_short}memory poll failed: {e}"
                                     ),
                                 })).await.ok();
                             }
@@ -518,10 +611,198 @@ fn connect_vm_service(
                     }
                 }
             });
+
+            // HTTP profile poll: feeds the Network inspector panel
+            // (toggled with `n`). Same idea as the memory poll, but
+            // queries `ext.dart.io.getHttpProfile` and emits one
+            // `AppEvent::Flutter::Log` per *new* request seen since
+            // the last poll. We dedupe by request ID so a long-lived
+            // request doesn't reappear every second.
+            let net_client = client.clone();
+            let net_tx = event_tx.clone();
+            let net_short = short_name.clone();
+            tokio::spawn(async move {
+                use std::collections::HashSet;
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
+                ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+                let mut seen: HashSet<String> = HashSet::new();
+                let mut consecutive_failures: u32 = 0;
+                // Track whether we've already enabled timeline
+                // logging this session. The `ext.dart.io.*`
+                // extensions are registered by the Dart runtime the
+                // FIRST time the app touches `dart:io` — which can
+                // be well after VM Service connect. Retry enabling
+                // on every tick until it sticks.
+                let mut timeline_enabled = false;
+                // Has any HTTP request been observed yet? We only
+                // emit the diagnostic "first request captured" log
+                // once so the user knows the panel is actually
+                // wired up.
+                let mut announced = false;
+                let mut logged_first_error = false;
+                loop {
+                    ticker.tick().await;
+                    // Refresh isolate id every tick — same reasoning
+                    // as the memory poll: hot restart mints a new
+                    // isolate and the old id starts returning
+                    // sentinels. `ext.dart.io.*` is per-isolate so
+                    // we MUST pass the current one.
+                    let iso = match net_client.get_first_isolate_id().await {
+                        Ok(id) => id,
+                        Err(_) => {
+                            consecutive_failures += 1;
+                            if consecutive_failures > 60 {
+                                break;
+                            }
+                            continue;
+                        }
+                    };
+                    if !timeline_enabled {
+                        if net_client
+                            .call(
+                                "ext.dart.io.httpEnableTimelineLogging",
+                                serde_json::json!({ "isolateId": iso, "enabled": true }),
+                            )
+                            .await
+                            .is_ok()
+                        {
+                            timeline_enabled = true;
+                        } else {
+                            // Extension not registered yet — the
+                            // Dart runtime registers `ext.dart.io.*`
+                            // lazily on first `dart:io` touch.
+                            // Retry next tick.
+                            continue;
+                        }
+                    }
+                    let v = match net_client
+                        .call(
+                            "ext.dart.io.getHttpProfile",
+                            serde_json::json!({ "isolateId": iso }),
+                        )
+                        .await
+                    {
+                        Ok(v) => v,
+                        Err(e) => {
+                            if !logged_first_error {
+                                logged_first_error = true;
+                                net_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Debug,
+                                    message: format!(
+                                        "{net_short}network poll: {e} (will keep retrying)"
+                                    ),
+                                })).await.ok();
+                            }
+                            consecutive_failures += 1;
+                            if consecutive_failures > 60 {
+                                break;
+                            }
+                            continue;
+                        }
+                    };
+                    consecutive_failures = 0;
+                    // Different Dart versions surface the request
+                    // list under slightly different keys. Try the
+                    // canonical name first, then a few known aliases
+                    // so the panel works across SDK channels.
+                    let requests = v
+                        .get("requests")
+                        .or_else(|| v.get("httpRequests"))
+                        .or_else(|| v.get("samples"))
+                        .and_then(serde_json::Value::as_array)
+                        .cloned()
+                        .unwrap_or_default();
+                    if !announced {
+                        announced = true;
+                        let keys: Vec<String> = v
+                            .as_object()
+                            .map(|m| m.keys().cloned().collect())
+                            .unwrap_or_default();
+                        net_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Debug,
+                            message: format!(
+                                "{net_short}🌐 network poll OK — keys={keys:?} requests={}",
+                                requests.len()
+                            ),
+                        })).await.ok();
+                    }
+                    for r in requests {
+                        let id = r
+                            .get("id")
+                            .map(|v| v.to_string())
+                            .unwrap_or_default();
+                        if id.is_empty() || seen.contains(&id) {
+                            continue;
+                        }
+                        // Permissive "is this done?" check. Older
+                        // Dart used `isResponseComplete`; newer
+                        // surfaces presence of `response.statusCode`
+                        // OR a non-zero `endTime`. Accept any of
+                        // them — better to show an entry than miss
+                        // it. Once an entry is `seen`, dedup keeps
+                        // us from double-emitting.
+                        let has_status = r
+                            .get("response")
+                            .and_then(|x| x.get("statusCode"))
+                            .is_some();
+                        let has_end = r
+                            .get("endTime")
+                            .and_then(serde_json::Value::as_u64)
+                            .map(|n| n > 0)
+                            .unwrap_or(false);
+                        let explicit_done = r
+                            .get("isResponseComplete")
+                            .and_then(serde_json::Value::as_bool)
+                            .unwrap_or(false);
+                        if !(has_status || has_end || explicit_done) {
+                            continue;
+                        }
+                        seen.insert(id.clone());
+                        // Method / URL also have varying field names.
+                        let method = r
+                            .get("method")
+                            .or_else(|| r.get("requestMethod"))
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("?")
+                            .to_string();
+                        let url = r
+                            .get("uri")
+                            .or_else(|| r.get("url"))
+                            .and_then(serde_json::Value::as_str)
+                            .unwrap_or("")
+                            .to_string();
+                        let status = r
+                            .get("response")
+                            .and_then(|r| r.get("statusCode"))
+                            .and_then(serde_json::Value::as_u64)
+                            .map(|n| n as u16);
+                        let start_us = r
+                            .get("startTime")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(0);
+                        let end_us = r
+                            .get("endTime")
+                            .and_then(serde_json::Value::as_u64)
+                            .unwrap_or(start_us);
+                        let duration_ms =
+                            ((end_us.saturating_sub(start_us)) / 1000) as u64;
+                        net_tx
+                            .send(AppEvent::Device(fl_core::DeviceEvent::HttpRequest {
+                                device: net_short.clone(),
+                                method,
+                                url,
+                                status,
+                                duration_ms: Some(duration_ms),
+                            }))
+                            .await
+                            .ok();
+                    }
+                }
+            });
         } else {
             event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
                 level: LogLevel::Warn,
-                message: format!("[{short_name}] VM Service: no isolate found after 10s"),
+                message: format!("{short_name}VM Service: no isolate found after 10s"),
             })).await.ok();
         }
     });
@@ -542,6 +823,20 @@ pub async fn broadcast_key(
     // is still alive. We can fall back to `reloadSources` (VM Service
     // RPC) for `r`. Hot restart has no VM Service equivalent, so it's
     // simply unavailable post-unplug.
+    // `s` — capture every device's current frame in parallel.
+    if matches!(key, FlKey::Char('s')) {
+        capture_all_screenshots(sessions, events).await;
+        return;
+    }
+
+    // `d` — open this run's Flutter DevTools URL in the user's
+    // browser, one tab per session. The URL is captured from the
+    // daemon's `app.devTools:` log line into `session.devtools_uri`.
+    if matches!(key, FlKey::Char('d')) {
+        open_devtools_all(sessions, events).await;
+        return;
+    }
+
     if matches!(key, FlKey::Char('r') | FlKey::Char('R')) {
         let full = matches!(key, FlKey::Char('R'));
         for s in sessions {
@@ -787,6 +1082,278 @@ fn mode_label(m: BuildMode) -> &'static str {
     }
 }
 
+/// Press-`s` handler: capture every device's frame in parallel,
+/// dump PNGs into `screenshots/<timestamp>/<device>.png`, report
+/// per-device success/failure as Flutter log lines, finish with a
+/// summary line.
+async fn capture_all_screenshots(
+    sessions: &[DeviceSession],
+    events: &mpsc::Sender<AppEvent>,
+) {
+    if sessions.is_empty() {
+        return;
+    }
+    let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+    let dir = PathBuf::from("screenshots").join(&stamp);
+    if let Err(e) = std::fs::create_dir_all(&dir) {
+        events.send(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Error,
+            message: format!("📸 cannot create {}: {e}", dir.display()),
+        })).await.ok();
+        return;
+    }
+
+    let mut tasks = Vec::new();
+    for s in sessions {
+        let serial = s.serial.clone();
+        let short = s.short_name.clone();
+        let display = s.display_name.clone();
+        let dir = dir.clone();
+        let events = events.clone();
+        let vm_client = s.vm_client.lock().await.clone();
+        tasks.push(tokio::spawn(async move {
+            let filename = format!("{}.png", sanitize_filename(&display));
+            let path = dir.join(&filename);
+            match capture_one(&serial, &path, vm_client.as_ref()).await {
+                Ok(method) => {
+                    events.send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Info,
+                        message: format!("[{short}] 📸 saved {} ({method})", path.display()),
+                    })).await.ok();
+                    true
+                }
+                Err(e) => {
+                    events.send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Warn,
+                        message: format!("[{short}] 📸 screenshot failed: {e}"),
+                    })).await.ok();
+                    false
+                }
+            }
+        }));
+    }
+    let results = futures_util::future::join_all(tasks).await;
+    let ok = results.into_iter().filter_map(|r| r.ok()).filter(|b| *b).count();
+    events.send(AppEvent::Flutter(FlutterEvent::Log {
+        level: LogLevel::Info,
+        message: format!("📸 {ok}/{} screenshots in {}", sessions.len(), dir.display()),
+    })).await.ok();
+}
+
+/// Try every screenshot strategy in priority order. CRITICAL: every
+/// subprocess MUST set `stdin(Stdio::null())` — otherwise the child
+/// inherits the TUI's terminal stdin and reads the user's keystrokes
+/// while we're in raw mode, which then bleeds into the rendered
+/// dashboard as corrupted glyphs (`^[`, `^?`, etc.). The same fix
+/// already lives in test_cmd / build_cmd.
+async fn capture_one(
+    serial: &str,
+    path: &std::path::Path,
+    vm_client: Option<&fl_vmservice::VmServiceClient>,
+) -> anyhow::Result<&'static str> {
+    use tokio::process::Command;
+    let path_str = path.to_str().unwrap_or("screenshot.png");
+
+    // 0. VM Service screenshot RPC — fastest, zero deps.
+    if let Some(client) = vm_client {
+        if let Ok(bytes) = client.screenshot_png().await {
+            std::fs::write(path, &bytes)
+                .map_err(|e| anyhow!("write {}: {e}", path.display()))?;
+            return Ok("vmservice");
+        }
+    }
+
+    // 1. `flutter screenshot` — Flutter SDK's built-in.
+    let flutter = Command::new("flutter")
+        .args(["screenshot", "--device-id", serial, "--out", path_str])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await;
+    if let Ok(s) = flutter {
+        if s.success() && path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+            return Ok("flutter screenshot");
+        }
+    }
+
+    // 2. Android adb screencap.
+    let android = Command::new("adb")
+        .args(["-s", serial, "exec-out", "screencap", "-p"])
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await;
+    if let Ok(out) = android {
+        if out.status.success() && out.stdout.starts_with(&[0x89, b'P', b'N', b'G']) {
+            std::fs::write(path, &out.stdout)?;
+            return Ok("adb");
+        }
+    }
+
+    // 3. libimobiledevice for real iOS devices.
+    let ios = Command::new("idevicescreenshot")
+        .args(["-u", serial, path_str])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await;
+    if let Ok(s) = ios {
+        if s.success() && path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+            return Ok("idevicescreenshot");
+        }
+    }
+
+    // 4. iOS simulators.
+    let sim = Command::new("xcrun")
+        .args(["simctl", "io", serial, "screenshot", path_str])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .await;
+    if let Ok(s) = sim {
+        if s.success() && path.exists() && path.metadata().map(|m| m.len() > 0).unwrap_or(false) {
+            return Ok("simctl");
+        }
+    }
+
+    Err(anyhow!(
+        "all screenshot methods failed for {serial} — VM Service unreachable, \
+         flutter / adb / idevicescreenshot / simctl each declined"
+    ))
+}
+
+/// Make a device display name safe to drop into a filename.
+fn sanitize_filename(name: &str) -> String {
+    let mut s: String = name
+        .chars()
+        .map(|c| match c {
+            '/' | '\\' | ':' => '_',
+            c if c.is_whitespace() => '_',
+            c => c,
+        })
+        .collect();
+    while s.contains("__") {
+        s = s.replace("__", "_");
+    }
+    s.trim_matches('_').to_string()
+}
+
+/// Open the captured Flutter DevTools URL for every session in the
+/// user's default browser. macOS gets `open`, everything else gets
+/// `xdg-open`. Sessions whose URL hasn't been captured yet (the
+/// daemon hasn't emitted `app.devTools: …` — still building, VM
+/// Service not up) get a friendly warn instead of a silent no-op.
+async fn open_devtools_all(
+    sessions: &[DeviceSession],
+    events: &mpsc::Sender<AppEvent>,
+) {
+    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+    let mut opened = 0;
+    let mut missing = 0;
+    for s in sessions {
+        let uri = s.devtools_uri.lock().await.clone();
+        let short = s.short_name.clone();
+        match uri {
+            Some(u) => {
+                match tokio::process::Command::new(opener)
+                    .arg(&u)
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .status()
+                    .await
+                {
+                    Ok(st) if st.success() => {
+                        opened += 1;
+                        events.send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Info,
+                            message: format!("[{short}] 🔧 DevTools opened in browser"),
+                        })).await.ok();
+                    }
+                    _ => {
+                        events.send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Warn,
+                            message: format!("[{short}] couldn't run `{opener}` — DevTools: {u}"),
+                        })).await.ok();
+                    }
+                }
+            }
+            None => {
+                missing += 1;
+                events.send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Warn,
+                    message: format!(
+                        "[{short}] DevTools not ready yet — still building / VM Service not up"
+                    ),
+                })).await.ok();
+            }
+        }
+    }
+    if opened == 0 && missing > 0 {
+        events.send(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Info,
+            message: "🔧 No DevTools URL captured yet — wait for the app to start and retry".into(),
+        })).await.ok();
+    }
+}
+
+/// Ask Flutter what devices it can actually see via `flutter devices
+/// --machine` (JSON). Returns the set of device IDs Flutter is
+/// willing to target. Returns an empty set on any failure — we then
+/// fall back to the union of adb + xcrun discovery, so a broken
+/// `flutter` doesn't lock the user out of the picker.
+async fn flutter_known_devices(flutter: &Path) -> std::collections::HashSet<String> {
+    use std::collections::HashSet;
+    let out = match tokio::process::Command::new(flutter)
+        .args(["devices", "--machine"])
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .await
+    {
+        Ok(o) if o.status.success() => o,
+        _ => return HashSet::new(),
+    };
+    let raw = String::from_utf8_lossy(&out.stdout);
+    // `flutter devices --machine` prints a JSON array, sometimes
+    // preceded by a banner ("Downloading Android Maven dependencies…").
+    // Locate the first `[` and parse from there.
+    let start = match raw.find('[') {
+        Some(i) => i,
+        None => return HashSet::new(),
+    };
+    let v: serde_json::Value = match serde_json::from_str(&raw[start..]) {
+        Ok(v) => v,
+        Err(_) => return HashSet::new(),
+    };
+    v.as_array()
+        .map(|arr| {
+            arr.iter()
+                // Only keep devices Flutter says it can actually
+                // target. `flutter devices --machine` lists every
+                // attached device (Apple Watches, half-offline
+                // emulators, …) and marks the rejected ones with
+                // `isSupported: false`. The `flutter run` daemon
+                // then re-checks the same flag and fails with "No
+                // supported devices found" — without this filter
+                // the user can pick such a ghost device from the
+                // picker and we have no way to predict the failure
+                // until we try to spawn the run.
+                .filter(|d| {
+                    d.get("isSupported")
+                        .and_then(serde_json::Value::as_bool)
+                        .unwrap_or(true)
+                })
+                .filter_map(|d| d.get("id").and_then(serde_json::Value::as_str))
+                .map(str::to_string)
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn dirs_home() -> Option<&'static Path> {
     static HOME: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     HOME.get_or_init(|| directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()))
@@ -827,6 +1394,22 @@ pub async fn run_multi(
     let xcrun = fl_ios::Xcrun::new(TokioRunner);
     all_devices.extend(fl_ios::list_apple_devices(&xcrun).await);
 
+    // Cross-reference with `flutter devices --machine` — the
+    // authoritative list of devices the Flutter toolchain will
+    // actually let `flutter run -d <id>` target. Without this, our
+    // picker happily offers e.g. an Android emulator that adb sees
+    // but Flutter's Android tooling has rejected (broken
+    // ANDROID_HOME, missing SDK, …), the user picks it, and the
+    // run dies with "No supported devices found". We filter it out
+    // up-front so the picker only shows runnable targets.
+    // Quietly drop devices Flutter wouldn't run on (Apple Watches,
+    // unsupported iPads, half-broken emulators, …). No stderr noise:
+    // the picker showing only runnable devices is enough signal.
+    let flutter_known = flutter_known_devices(&flutter).await;
+    if !flutter_known.is_empty() {
+        all_devices.retain(|d| flutter_known.contains(&d.serial));
+    }
+
     let plain = no_tui || std::env::var_os("FL_HEADLESS").is_some();
     let headless_event_dump = std::env::var_os("FL_HEADLESS").is_some(); // tests want raw {ev:?}
     let chosen: Vec<String> = if !devices_arg.is_empty() {
@@ -839,11 +1422,22 @@ pub async fn run_multi(
     } else if all_devices.len() <= 1 || no_picker || plain {
         all_devices.first().map(|d| vec![d.serial.clone()]).unwrap_or_default()
     } else {
-        run_picker(&all_devices).await?
+        // Picker cancelled (`q`/`Esc`) is a clean exit, not an
+        // error. Returning an empty Vec lets the check below
+        // short-circuit without bubbling a panicky "Error:" message
+        // to the user.
+        match run_picker(&all_devices).await {
+            Ok(v) => v,
+            Err(_) => Vec::new(),
+        }
     };
 
     if chosen.is_empty() {
-        return Err(anyhow!("no devices to run on"));
+        // Either no devices at all, or the user backed out of the
+        // picker. Exit silently — the picker UI already gave the
+        // visual feedback ("q quit" footer), no need for an extra
+        // red Error line.
+        return Ok(());
     }
 
     let (event_tx, mut event_rx) = mpsc::channel::<AppEvent>(256);
@@ -866,20 +1460,34 @@ pub async fn run_multi(
 
     let mut sessions: Vec<DeviceSession> = Vec::new();
     for serial in &chosen {
+        // Pick the USB serial we should pre-pair for Wi-Fi takeover.
+        // Skip Android emulators — their `wlan0` is a NAT-local
+        // 10.0.2.x address unreachable from the host, so `adb
+        // connect` would just hang and surface a confusing "Wi-Fi
+        // pre-pair failed" error for a setup that doesn't need it.
         let usb_pair = all_devices
             .iter()
             .find(|d| d.serial == *serial
                   && matches!(d.connection, fl_core::ConnectionKind::Usb)
+                  && !d.serial.starts_with("emulator-")
                   && (d.platform.as_deref() == Some("android") || d.platform.is_none()))
             .map(|d| d.serial.clone());
-        // If our discovery says the chosen device is wired (devicectl /
-        // adb reported USB transport), force Flutter to use the attached
-        // tunnel — otherwise iOS 17+ silently routes through the slower
-        // Bonjour transport even when the cable is plugged in.
+        // iOS-only optimisation: when the user picked a wired iPhone,
+        // force `flutter run --device-connection attached` so the
+        // daemon uses the coredevice USB tunnel instead of silently
+        // falling back to the slow Bonjour wireless transport on
+        // iOS 17+. For Android (and especially Android emulators)
+        // we must NOT pass that flag — Flutter interprets it as
+        // "exclude non-attached devices" and the emulator gets
+        // filtered out, surfacing as "No supported devices found
+        // with name or id matching 'emulator-5554'".
         let prefer_attached = all_devices
             .iter()
             .find(|d| d.serial == *serial)
-            .map(|d| matches!(d.connection, fl_core::ConnectionKind::Usb))
+            .map(|d| {
+                matches!(d.connection, fl_core::ConnectionKind::Usb)
+                    && d.platform.as_deref() == Some("ios")
+            })
             .unwrap_or(false);
         let s = spawn_session(
             runner.clone(),
@@ -893,6 +1501,7 @@ pub async fn run_multi(
             vm_mdns_cache.clone(),
             prefer_attached,
             extra.clone(),
+            chosen.len() > 1,
         )
         .await?;
         sessions.push(s);
@@ -999,6 +1608,7 @@ pub async fn run_multi(
                     k,
                     FlKey::Char('r') | FlKey::Char('R') | FlKey::Char('b')
                   | FlKey::Char('p') | FlKey::Char('o') | FlKey::Char('P')
+                  | FlKey::Char('s') | FlKey::Char('d')
                 ) {
                     let bs = brightness.load(std::sync::atomic::Ordering::Relaxed);
                     let brightness_value: Option<bool> = match bs {

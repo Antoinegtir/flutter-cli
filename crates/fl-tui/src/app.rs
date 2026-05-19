@@ -22,6 +22,10 @@ pub fn prefix_color_index(short_name: &str) -> usize {
 
 const LOG_RING: usize = 1_000;
 const FPS_RING: usize = 60;
+/// Maximum number of HTTP requests kept in the Network inspector
+/// ring buffer. 200 is enough for the user to scroll back through a
+/// typical session without exploding memory if the app is chatty.
+const NETWORK_RING: usize = 200;
 const MEM_RING: usize = 60;
 
 #[derive(Debug, Clone)]
@@ -122,7 +126,45 @@ pub struct AppState {
     /// drawn on top of the running app via `showPerformanceOverlay`) is
     /// currently visible. Toggled by `P`.
     pub perf_overlay_on: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    /// When true, the left dashboard panel renders the Network
+    /// inspector (live HTTP requests) instead of the Performance
+    /// panel. Toggled by `n`.
+    pub show_network: bool,
+    /// Rolling buffer of recent HTTP requests captured from the
+    /// running app's Dart VM (`ext.dart.io.getHttpProfile`). Latest
+    /// at the back. Capped at NETWORK_RING entries.
+    pub network_requests: VecDeque<NetworkRequest>,
+    /// How many lines back from the *latest* request the Network
+    /// panel's viewport is anchored. `0` = follow the tail (newest
+    /// request always at the bottom). Up arrow increments, Down
+    /// decrements, clamped at render time to `len - viewport_height`
+    /// so scrolling stops at the oldest visible row instead of
+    /// pushing requests off the top.
+    pub network_scroll_offset: usize,
+    /// Last viewport height observed by the network renderer, in
+    /// rows. Read by the Up handler to cap `network_scroll_offset`
+    /// at `len - height`. AtomicUsize so the renderer can write to
+    /// it without making `render` take `&mut`.
+    pub network_viewport_height: std::sync::atomic::AtomicUsize,
     pub quitting: bool,
+}
+
+/// Single HTTP request snapshot, captured by polling
+/// `ext.dart.io.getHttpProfile` on each session's VM Service.
+#[derive(Debug, Clone)]
+pub struct NetworkRequest {
+    /// Originating device's short_name — so a single Network panel
+    /// can show traffic from N devices without mixing them up.
+    pub device: String,
+    /// HTTP method (GET/POST/…)
+    pub method: String,
+    /// Request URL (full, untruncated; rendering truncates).
+    pub url: String,
+    /// Response status code, `None` while still in flight.
+    pub status: Option<u16>,
+    /// Duration in ms from request start to response end. `None`
+    /// while in flight.
+    pub duration_ms: Option<u64>,
 }
 
 /// Possible values for `AppState::brightness_state`.
@@ -178,6 +220,10 @@ impl AppState {
             debug_paint_on: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             platform_is_ios: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             perf_overlay_on: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            show_network: false,
+            network_requests: VecDeque::with_capacity(NETWORK_RING),
+            network_scroll_offset: 0,
+            network_viewport_height: std::sync::atomic::AtomicUsize::new(10),
             quitting: false,
         }
     }
@@ -318,6 +364,25 @@ impl AppState {
                         BannerKind::Warn,
                         &format!("[{short}] device disconnected — press q to exit"),
                     );
+                }
+            }
+            DeviceEvent::HttpRequest { device, method, url, status, duration_ms } => {
+                // Append to the rolling buffer the Network panel
+                // reads from. Cap at NETWORK_RING to keep memory
+                // bounded — old requests fall off the front.
+                self.network_requests.push_back(NetworkRequest {
+                    device, method, url, status, duration_ms,
+                });
+                while self.network_requests.len() > NETWORK_RING {
+                    self.network_requests.pop_front();
+                    // The user's scroll anchor is "N back from
+                    // newest", but when an old entry drops off the
+                    // front the *content* under that anchor shifts.
+                    // Decrement so what the user is looking at stays
+                    // in place.
+                    if self.network_scroll_offset > 0 {
+                        self.network_scroll_offset -= 1;
+                    }
                 }
             }
             DeviceEvent::Error(msg) => {
@@ -502,11 +567,31 @@ impl AppState {
                 self.quitting = true;
             }
             fl_core::KeyEvent::Up => {
-                let max = self.max_log_scroll_offset();
-                self.log_scroll_offset = (self.log_scroll_offset + 1).min(max);
+                // While the Network panel is visible, Up/Down scroll
+                // its history instead of the log scrollback — that's
+                // where the user's eyes are looking. The max offset
+                // is `len - viewport_height` so the oldest request
+                // stays pinned to the top instead of getting pushed
+                // off when the user keeps pressing Up.
+                if self.show_network {
+                    let viewport = self
+                        .network_viewport_height
+                        .load(std::sync::atomic::Ordering::Relaxed)
+                        .max(1);
+                    let max = self.network_requests.len().saturating_sub(viewport);
+                    self.network_scroll_offset = (self.network_scroll_offset + 1).min(max);
+                } else {
+                    let max = self.max_log_scroll_offset();
+                    self.log_scroll_offset = (self.log_scroll_offset + 1).min(max);
+                }
             }
             fl_core::KeyEvent::Down => {
-                self.log_scroll_offset = self.log_scroll_offset.saturating_sub(1);
+                if self.show_network {
+                    self.network_scroll_offset =
+                        self.network_scroll_offset.saturating_sub(1);
+                } else {
+                    self.log_scroll_offset = self.log_scroll_offset.saturating_sub(1);
+                }
             }
             fl_core::KeyEvent::PageUp => {
                 let max = self.max_log_scroll_offset();
@@ -575,6 +660,17 @@ impl AppState {
                     "Perf overlay: OFF"
                 };
                 self.show_banner(BannerKind::Info, label);
+            }
+            fl_core::KeyEvent::Char('n') => {
+                // Toggle the left dashboard panel between Performance
+                // and Network inspector. Purely local state — the
+                // network data continues to be collected in the
+                // background whether or not the panel is visible.
+                self.show_network = !self.show_network;
+                self.show_banner(
+                    BannerKind::Info,
+                    if self.show_network { "🌐 Network panel" } else { "📊 Performance panel" },
+                );
             }
             fl_core::KeyEvent::Char('c') => {
                 // Copy the visible log contents to the clipboard, stripped

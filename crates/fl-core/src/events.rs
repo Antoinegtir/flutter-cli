@@ -25,6 +25,16 @@ pub enum DeviceEvent {
     WifiReconnected,
     IpChanged { serial: String, old_ip: String, new_ip: String },
     SessionState { serial: String, state: DeviceSessionState },
+    /// One captured HTTP request from a running session's Dart VM,
+    /// surfaced via `ext.dart.io.getHttpProfile`. The TUI's Network
+    /// panel (toggled with `n`) buffers these into a scrolling list.
+    HttpRequest {
+        device: String,
+        method: String,
+        url: String,
+        status: Option<u16>,
+        duration_ms: Option<u64>,
+    },
     Error(String),
 }
 

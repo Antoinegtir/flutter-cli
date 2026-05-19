@@ -647,14 +647,18 @@ impl TuiRunner {
                 Rect::new(0, rows.saturating_sub(h), cols, h)
             }
         };
-        // Step 1: wipe the entire visible screen. `terminal.resize()`
-        // and `terminal.clear()` only erase the viewport rows for
-        // `Viewport::Fixed`, so any old content outside the new
-        // viewport (banner, logs, the previous viewport rectangle if
-        // it moved) would otherwise persist.
+        // Step 1: wipe both the visible screen AND the terminal's
+        // scrollback buffer. The `\x1b[2J` clears what's currently
+        // on screen; `\x1b[3J` (xterm extension, supported by every
+        // modern terminal we care about) wipes the off-screen
+        // scrollback too. The scrollback wipe is critical when the
+        // user grows the terminal vertically — without it, every
+        // viewport position we've ever drawn at (now scrolled out
+        // of view) re-appears at the top of the screen, producing
+        // a column of stacked dashboards.
         {
             let backend = self.terminal.backend_mut();
-            write!(backend, "\x1b[2J\x1b[H")?;
+            write!(backend, "\x1b[3J\x1b[2J\x1b[H")?;
             backend.flush()?;
         }
         // Step 2: tell ratatui about the new geometry and invalidate
@@ -718,18 +722,29 @@ impl TuiRunner {
                         // lost every time the user nudges the edge.
                         let _ = self.repaint_scrollback(state, &theme);
                     } else if let Some(k) = map_key(term_ev) {
-                        // Apply locally first (handles q/v/r/R/c and
-                        // also filter-mode keys, which mutate
-                        // state.log_filter).
+                        // Track filter-input state BEFORE and AFTER
+                        // so we can tell whether the key was consumed
+                        // by the filter buffer. Either:
+                        //   - filter was already active (user typing
+                        //     into the search field), or
+                        //   - the key IS the `/` that just opened
+                        //     filter mode,
+                        // and in both cases we MUST NOT forward to
+                        // `keys_tx` — otherwise typing "error" into
+                        // the filter would also fire `[r] reload`,
+                        // `[e] …`, etc.
+                        let was_filtering = state.filter_input.is_some();
                         state.on_key(k);
+                        let is_filtering = state.filter_input.is_some();
                         // The filter may have just changed — repaint
                         // the scrollback band above the viewport with
                         // the (newly-filtered) tail of state.logs.
                         self.refresh_filter_view(state, &theme);
-                        // Forward to any external handler with a non-blocking
-                        // try_send so we never freeze the loop when no consumer
-                        // is reading.
-                        let _ = keys_tx.try_send(k);
+                        if !was_filtering && !is_filtering {
+                            // Normal mode in, normal mode out — safe
+                            // to fire any global keybinds (r/R/b/…).
+                            let _ = keys_tx.try_send(k);
+                        }
                     }
                 }
                 Some(ev) = rx.recv() => {

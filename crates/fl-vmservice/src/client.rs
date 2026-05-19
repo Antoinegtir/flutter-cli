@@ -147,6 +147,13 @@ fn stream_event_to_vm_event(stream_id: &str, event: &Value) -> Option<VmEvent> {
 }
 
 fn decode_b64_lossy(input: &str) -> String {
+    String::from_utf8_lossy(&decode_b64_bytes(input)).into_owned()
+}
+
+/// Decode standard-alphabet base64 into raw bytes. Used by both the
+/// lossy `String` wrapper above AND `screenshot_png` in `ext.rs`
+/// where the payload is a binary PNG that can't go through UTF-8.
+pub(crate) fn decode_b64_bytes(input: &str) -> Vec<u8> {
     let table = |c: u8| -> Option<u8> {
         match c {
             b'A'..=b'Z' => Some(c - b'A'),
@@ -171,7 +178,7 @@ fn decode_b64_lossy(input: &str) -> String {
             }
         }
     }
-    String::from_utf8_lossy(&out).into_owned()
+    out
 }
 
 #[cfg(test)]
