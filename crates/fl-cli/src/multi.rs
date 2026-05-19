@@ -58,6 +58,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     event_tx: mpsc::Sender<AppEvent>,
     vm_mdns_cache: Option<fl_vmservice::mdns::AdCache>,
     prefer_attached: bool,
+    extra_user_args: Vec<String>,
 ) -> anyhow::Result<DeviceSession> {
     let display_name = match &usb_serial_to_pair {
         Some(usb) => runner
@@ -152,6 +153,12 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         extra.push("--device-connection");
         extra.push("attached");
     }
+    // User-supplied pass-through args (after `--` on the `fl run`
+    // command line). Appended LAST so explicit user choices win over
+    // any defaults we added above.
+    for a in &extra_user_args {
+        extra.push(a.as_str());
+    }
     let daemon = FlutterDaemon::spawn(flutter, project, &final_target, &extra, flutter_tx).await?;
     *session.daemon.lock().await = Some(daemon);
 
@@ -169,6 +176,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let mode_for_respawn = mode;
     let prefer_attached_for_respawn = prefer_attached;
     let final_target_for_respawn = final_target.clone();
+    let extra_user_args_for_respawn = extra_user_args.clone();
     tokio::spawn(async move {
         // The daemon may be respawned more than once if the user goes
         // through several unplug↔replug cycles. We loop so all the
@@ -289,6 +297,11 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             if prefer_attached_for_respawn {
                 respawn_extra.push("--device-connection");
                 respawn_extra.push("attached");
+            }
+            // Same pass-through args as the original spawn so a respawn
+            // doesn't silently drop the user's --flavor / --dart-define.
+            for a in &extra_user_args_for_respawn {
+                respawn_extra.push(a.as_str());
             }
             // Reap the iproxy zombies from the just-dead daemon before
             // spawning the new one — otherwise EPERM kicks in after a
@@ -416,17 +429,32 @@ fn connect_vm_service(
             let mem_client = client.clone();
             let mem_tx = event_tx.clone();
             let mem_serial = serial.clone();
+            let mem_short = short_name.clone();
             tokio::spawn(async move {
                 let mut ticker =
                     tokio::time::interval(std::time::Duration::from_secs(1));
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut consecutive_failures: u32 = 0;
+                // Track the first successful poll so we can log it once
+                // (useful confirmation the Memory line should be moving)
+                // plus the last reported value so we can detect a
+                // stuck-at-zero scenario and surface it as a warn.
+                let mut logged_first_sample = false;
+                let mut warned_about_zeros = false;
                 loop {
                     ticker.tick().await;
                     let iso = match mem_client.get_first_isolate_id().await {
                         Ok(id) => id,
-                        Err(_) => {
+                        Err(e) => {
                             consecutive_failures += 1;
+                            if consecutive_failures == 5 {
+                                mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Debug,
+                                    message: format!(
+                                        "[{mem_short}] memory poll: getVM/isolate failed ({e})"
+                                    ),
+                                })).await.ok();
+                            }
                             if consecutive_failures > 60 {
                                 break; // VM unreachable for a minute → give up.
                             }
@@ -436,6 +464,29 @@ fn connect_vm_service(
                     match mem_client.get_memory_usage_mb(&iso).await {
                         Ok((used, total)) => {
                             consecutive_failures = 0;
+                            if !logged_first_sample {
+                                logged_first_sample = true;
+                                mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Debug,
+                                    message: format!(
+                                        "[{mem_short}] memory poll OK: used={used:.1}MB cap={total:.1}MB"
+                                    ),
+                                })).await.ok();
+                            }
+                            // If both values stay 0 for ~10 s after the
+                            // first response, something is off (VM
+                            // protocol mismatch, sentinel isolate, …).
+                            // Log once so the user knows the panel
+                            // isn't going to start moving on its own.
+                            if used == 0.0 && total == 0.0 && !warned_about_zeros {
+                                warned_about_zeros = true;
+                                mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Warn,
+                                    message: format!(
+                                        "[{mem_short}] memory poll returns 0/0 — heapUsage/heapCapacity may be missing in the VM Service response"
+                                    ),
+                                })).await.ok();
+                            }
                             if mem_tx
                                 .send(AppEvent::Vm {
                                     serial: mem_serial.clone(),
@@ -450,8 +501,16 @@ fn connect_vm_service(
                                 break;
                             }
                         }
-                        Err(_) => {
+                        Err(e) => {
                             consecutive_failures += 1;
+                            if consecutive_failures == 5 {
+                                mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Warn,
+                                    message: format!(
+                                        "[{mem_short}] memory poll failed: {e}"
+                                    ),
+                                })).await.ok();
+                            }
                             if consecutive_failures > 60 {
                                 break;
                             }
@@ -717,12 +776,24 @@ pub fn resolve_flutter_path() -> anyhow::Result<PathBuf> {
         .ok_or_else(|| anyhow!("flutter binary not found"))
 }
 
+/// Render a `BuildMode` as the lowercase label shown in the dashboard
+/// header. Kept inline here (rather than as a method on `BuildMode`
+/// upstream) so the user-visible wording is owned by the CLI crate.
+fn mode_label(m: BuildMode) -> &'static str {
+    match m {
+        BuildMode::Debug => "debug",
+        BuildMode::Profile => "profile",
+        BuildMode::Release => "release",
+    }
+}
+
 fn dirs_home() -> Option<&'static Path> {
     static HOME: std::sync::OnceLock<Option<PathBuf>> = std::sync::OnceLock::new();
     HOME.get_or_init(|| directories::UserDirs::new().map(|u| u.home_dir().to_path_buf()))
         .as_deref()
 }
 
+#[allow(clippy::too_many_arguments)]
 pub async fn run_multi(
     project: Option<PathBuf>,
     devices_arg: Vec<String>,
@@ -731,6 +802,7 @@ pub async fn run_multi(
     no_wifi: bool,
     no_tui: bool,
     mode: BuildMode,
+    extra: Vec<String>,
 ) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
     let flutter = resolve_flutter_path()?;
@@ -820,6 +892,7 @@ pub async fn run_multi(
             event_tx.clone(),
             vm_mdns_cache.clone(),
             prefer_attached,
+            extra.clone(),
         )
         .await?;
         sessions.push(s);
@@ -860,7 +933,7 @@ pub async fn run_multi(
             .and_then(|n| n.to_str())
             .unwrap_or("app")
             .to_string();
-        let mut state = AppState::new(app_name, "debug".into());
+        let mut state = AppState::new(app_name, mode_label(mode).into());
         eprintln!(
             "fl run --no-tui · {} session{} · Ctrl-C to quit",
             sessions.len(),
@@ -900,7 +973,7 @@ pub async fn run_multi(
     }
 
     let app_name = project.file_name().and_then(|n| n.to_str()).unwrap_or("app").to_string();
-    let mut state = AppState::new(app_name, "debug".into());
+    let mut state = AppState::new(app_name, mode_label(mode).into());
     // Use an INLINE viewport (Claude-Code style): the TUI box sits at
     // the bottom of the terminal, the user's command history (and
     // streaming flutter logs) flow through the scrollback above it.
@@ -1038,7 +1111,7 @@ async fn shutdown_sessions_fast(sessions: &[DeviceSession]) {
     futures_util::future::join_all(waits).await;
 }
 
-async fn run_picker(devices: &[fl_core::Device]) -> anyhow::Result<Vec<String>> {
+pub async fn run_picker(devices: &[fl_core::Device]) -> anyhow::Result<Vec<String>> {
     use fl_tui::{DevicePickerInput, DevicePickerOutcome, DevicePickerView};
     let mut view = DevicePickerView::with_devices(devices.to_vec());
     let (_tx, mut rx) = mpsc::channel::<DevicePickerInput>(1);

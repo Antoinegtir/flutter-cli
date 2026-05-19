@@ -3,13 +3,13 @@ mod cli;
 mod devices_cmd;
 mod external_cmd;
 mod multi;
-mod pub_cmd;
 mod run_cmd;
 mod test_cmd;
 
 use anyhow::Context;
 use clap::Parser;
-use cli::{Cli, Cmd};
+use cli::{build_mode_from_flags, Cli, Cmd};
+use fl_core::BuildMode;
 use directories::ProjectDirs;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
@@ -58,12 +58,34 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Devices => devices_cmd::run().await,
-        Cmd::Run { project, device, all, no_picker, no_wifi, no_tui, mode } => {
-            run_cmd::run(project, device, all, no_picker, no_wifi, no_tui, mode).await
+        Cmd::Run { project, device, all, no_picker, no_wifi, no_tui, release, profile, debug, extra } => {
+            let mode = build_mode_from_flags(release, profile, debug, BuildMode::Debug);
+            run_cmd::run(project, device, all, no_picker, no_wifi, no_tui, mode, extra).await
         }
-        Cmd::Build { target, project, mode } => build_cmd::run(target, project, mode).await,
-        Cmd::Test { project, name } => test_cmd::run(project, name).await,
-        Cmd::Pub { sub, project } => pub_cmd::run(sub, project).await,
+        Cmd::Build { target, project, release, profile, debug, extra } => {
+            // Build defaults to release (most common use case for `flutter build`).
+            let mode = build_mode_from_flags(release, profile, debug, BuildMode::Release);
+            match target {
+                Some(t) => build_cmd::run(t, project, mode, extra).await,
+                None => {
+                    // No target → mirror `flutter build` (which prints
+                    // the available subcommands). Forward verbatim
+                    // through the external pass-through.
+                    let mut args = vec!["build".to_string()];
+                    args.extend(extra);
+                    external_cmd::run(args).await
+                }
+            }
+        }
+        Cmd::Test {
+            project, device, name, plain_name, tags, exclude_tags,
+            coverage, update_goldens, golden, reporter, concurrency, paths, extra,
+        } => {
+            test_cmd::run(test_cmd::Options {
+                project, device, name, plain_name, tags, exclude_tags,
+                coverage, update_goldens, golden, reporter, concurrency, paths, extra,
+            }).await
+        }
         Cmd::External(args) => external_cmd::run(args).await,
     }
 }

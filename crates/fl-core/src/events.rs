@@ -168,44 +168,6 @@ pub enum DoctorEvent {
     Done,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
-pub enum PubDepKind {
-    Direct,
-    Dev,
-    Transitive,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct OutdatedRow {
-    pub package: String,
-    pub current: String,
-    pub upgradable: String,
-    pub resolvable: String,
-    pub latest: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-pub struct PubTreeNode {
-    pub name: String,
-    pub version: String,
-    pub kind: PubDepKind,
-    pub children: Vec<PubTreeNode>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum PubEvent {
-    Resolving,
-    Got {
-        added: Vec<String>,
-        removed: Vec<String>,
-        modified: Vec<(String, String, String)>,
-    },
-    Outdated { rows: Vec<OutdatedRow> },
-    Deps { tree: PubTreeNode },
-    Log { level: LogLevel, message: String },
-    Done { success: bool },
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CleanEvent {
     Probing,

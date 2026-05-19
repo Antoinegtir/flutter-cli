@@ -169,19 +169,6 @@ fn headless_test_emits_test_events() {
     assert!(out.contains("AllDone"), "missing AllDone:\n{out}");
 }
 
-#[test]
-fn headless_pub_get_emits_got_event() {
-    ensure_binary_built();
-    let pubspec = pubspec_in_workspace();
-    let scenario = fixtures().join("scenarios/pub_get.txt");
-    let out = run_fl_with_env(
-        &["pub", "get", "--project", pubspec.to_str().unwrap()],
-        &[("FL_FLUTTER_PUB_SCENARIO", &scenario)],
-    );
-    assert!(out.contains("Got"), "missing Got event:\n{out}");
-    assert!(out.contains("shiny_pkg"), "missing added package:\n{out}");
-}
-
 // `fl doctor` and `fl clean` are no longer handled by `fl` — they now
 // pass through to the real `flutter` binary. The previous integration
 // tests asserted internal Section/Done events from our own TUIs; with

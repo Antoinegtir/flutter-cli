@@ -69,10 +69,30 @@ impl VmServiceClient {
     /// Snapshot the isolate's heap usage. Returns `(used_mb, capacity_mb)`.
     /// We poll this periodically because the VM Service doesn't push memory
     /// stats — `streamListen("GC")` only emits GC events, not totals.
+    ///
+    /// The Dart VM Service exposes this under `getMemoryUsage` (current,
+    /// public). Older builds shipped it as `getIsolateMemoryUsage` for a
+    /// while; we try the modern name first and fall back to the legacy
+    /// one if the VM responds with `-32601 Unknown method`, so the panel
+    /// works across the entire range of Flutter SDKs the user might be
+    /// running.
     pub async fn get_memory_usage_mb(&self, isolate_id: &str) -> anyhow::Result<(f64, f64)> {
-        let v = self
-            .call("getIsolateMemoryUsage", json!({ "isolateId": isolate_id }))
-            .await?;
+        let args = json!({ "isolateId": isolate_id });
+        let v = match self.call("getMemoryUsage", args.clone()).await {
+            Ok(v) => v,
+            Err(e) => {
+                let msg = e.to_string();
+                // -32601 = "Method not found". Only fall back in that
+                // specific case — any other error (timeout, transport,
+                // sentinel) should surface as-is so the caller's log
+                // path can show something actionable.
+                if msg.contains("-32601") {
+                    self.call("getIsolateMemoryUsage", args).await?
+                } else {
+                    return Err(e);
+                }
+            }
+        };
         // VM service returns bytes for heapUsage / externalUsage / heapCapacity.
         let heap_used = v.get("heapUsage").and_then(Value::as_f64).unwrap_or(0.0);
         let external = v.get("externalUsage").and_then(Value::as_f64).unwrap_or(0.0);

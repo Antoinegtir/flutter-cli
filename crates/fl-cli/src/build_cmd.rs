@@ -1,7 +1,7 @@
 //! `fl build <target> [--mode]` — wraps `flutter build <target> --machine`.
 
 use anyhow::{anyhow, Context};
-use fl_core::{BuildMode, BuildTarget};
+use fl_core::BuildMode;
 use fl_flutter::{parse_daemon_line, resolve_flutter};
 use fl_tui::{BuildView, TuiRunner};
 use std::path::{Path, PathBuf};
@@ -10,7 +10,12 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-pub async fn run(target: BuildTarget, project: Option<PathBuf>, mode: BuildMode) -> anyhow::Result<()> {
+pub async fn run(
+    target: String,
+    project: Option<PathBuf>,
+    mode: BuildMode,
+    extra: Vec<String>,
+) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
     if !project.join("pubspec.yaml").exists() {
         return Err(anyhow!("no pubspec.yaml in {} — not a Flutter project", project.display()));
@@ -20,17 +25,37 @@ pub async fn run(target: BuildTarget, project: Option<PathBuf>, mode: BuildMode)
 
     let (tx, mut rx) = mpsc::channel::<fl_core::FlutterEvent>(128);
 
-    let target_arg = target.flutter_arg().to_string();
+    // The target string is whatever the user typed (apk, ios, ipa,
+    // macos, …). We forward it verbatim — `flutter build` will reject
+    // unknown subcommands itself and we capture its stderr in the TUI.
+    let target_arg = target.clone();
     let mode_flag = mode.flutter_flag().to_string();
     let project_dir = project.clone();
     let flutter_path = flutter.clone();
 
+    let extra_owned = extra;
     tokio::spawn(async move {
-        let mut args: Vec<&str> = vec!["build", &target_arg, "--machine"];
+        // We used to pass `--machine` to get JSON progress events, but
+        // only `flutter build apk/appbundle/aar` honor it; `build ios`
+        // exits immediately with an arg-parse failure (which the user
+        // saw as an empty Steps panel and a 0.1s build). Plain text
+        // output is fine — we stream every line into the TUI as a log
+        // and the build view shows the tail.
+        let mut args: Vec<&str> = vec!["build", &target_arg];
         if !matches!(mode, BuildMode::Release) {
             args.push(&mode_flag);
         }
-        let mut child = Command::new(&flutter_path)
+        // User pass-through args (after `--` on the `fl build` line):
+        // `--flavor`, `--target=lib/main_prod.dart`, `--obfuscate`, etc.
+        for a in &extra_owned {
+            args.push(a.as_str());
+        }
+        // Spawn defensively: a failure here used to panic via `.expect`
+        // because the TUI was already attached, leaving the terminal in
+        // a half-drawn state. Now we surface the error as a Log + a
+        // synthetic Stopped event so the TUI exits cleanly and the user
+        // sees what went wrong.
+        let mut child = match Command::new(&flutter_path)
             .current_dir(&project_dir)
             .args(&args)
             // Detach stdin so the child can't steal mouse-tracking
@@ -40,9 +65,33 @@ pub async fn run(target: BuildTarget, project: Option<PathBuf>, mode: BuildMode)
             .stderr(Stdio::piped())
             .spawn()
             .context("spawning flutter build")
-            .expect("spawn");
-        let stdout = child.stdout.take().expect("stdout");
-        let stderr = child.stderr.take().expect("stderr");
+        {
+            Ok(c) => c,
+            Err(e) => {
+                tx.send(fl_core::FlutterEvent::Log {
+                    level: fl_core::LogLevel::Error,
+                    message: format!("flutter build failed to start: {e:#}"),
+                }).await.ok();
+                tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) }).await.ok();
+                return;
+            }
+        };
+        let Some(stdout) = child.stdout.take() else {
+            tx.send(fl_core::FlutterEvent::Log {
+                level: fl_core::LogLevel::Error,
+                message: "flutter build: stdout pipe unavailable".into(),
+            }).await.ok();
+            tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) }).await.ok();
+            return;
+        };
+        let Some(stderr) = child.stderr.take() else {
+            tx.send(fl_core::FlutterEvent::Log {
+                level: fl_core::LogLevel::Error,
+                message: "flutter build: stderr pipe unavailable".into(),
+            }).await.ok();
+            tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) }).await.ok();
+            return;
+        };
 
         let tx_out = tx.clone();
         tokio::spawn(async move {
@@ -79,7 +128,20 @@ pub async fn run(target: BuildTarget, project: Option<PathBuf>, mode: BuildMode)
     }
 
     let mut view = BuildView::new(target, mode);
-    let mut runner = TuiRunner::init()?;
+    // Inline viewport so the user's shell history stays visible above
+    // the build dashboard — same UX as `fl run`. ~14 rows is enough for
+    // the build status (target, mode, progress, last-error) without
+    // crowding the scrollback. If anything goes wrong while attaching
+    // (raw mode unavailable, stdout not a TTY, …) we report it as an
+    // error instead of crashing the process with the daemon still
+    // running in the background.
+    let mut runner = match TuiRunner::init_inline(14) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("fl build: could not attach inline TUI: {e:#}");
+            return Err(e);
+        }
+    };
     let result = runner.run_view(&mut view, &mut rx).await;
     let _ = runner.restore();
     result
