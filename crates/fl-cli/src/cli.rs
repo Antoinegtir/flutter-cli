@@ -105,6 +105,21 @@ pub enum Cmd {
         /// Use a `--` separator: `fl test -- --start-paused --shard-index 0`.
         #[arg(last = true, allow_hyphen_values = true)] extra: Vec<String>,
     },
+    /// Emit a shell shim that hijacks `flutter` so `flutter run`,
+    /// `flutter test`, `flutter build`, `flutter devices` flow through
+    /// `fl` automatically (with the TUI), while every other
+    /// `flutter <cmd>` keeps calling the real `flutter` binary.
+    ///
+    /// Usage (one-shot, in `~/.zshrc` / `~/.bashrc` / `~/.config/fish/config.fish`):
+    ///
+    ///     eval "$(fl init zsh)"     # or bash / fish
+    ///
+    /// After that, `flutter run` opens the `fl` dashboard directly —
+    /// IDEs that call the `flutter` binary still bypass the shim and
+    /// get vanilla behaviour, which is what you want.
+    Init {
+        #[arg(value_enum)] shell: ShellKind,
+    },
     /// Forward any other subcommand verbatim to `flutter` with stdio
     /// inherited. Lets `fl doctor`, `fl clean`, `fl analyze`, etc. work
     /// out of the box without us re-implementing each Flutter command
@@ -112,6 +127,13 @@ pub enum Cmd {
     /// itself, the rest are its args.
     #[command(external_subcommand)]
     External(Vec<String>),
+}
+
+#[derive(Debug, Clone, Copy, clap::ValueEnum)]
+pub enum ShellKind {
+    Zsh,
+    Bash,
+    Fish,
 }
 
 /// Resolve `--release` / `--profile` / `--debug` boolean flags into a

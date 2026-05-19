@@ -2,6 +2,7 @@ mod build_cmd;
 mod cli;
 mod devices_cmd;
 mod external_cmd;
+mod init_cmd;
 mod multi;
 mod run_cmd;
 mod test_cmd;
@@ -77,6 +78,7 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
         }
+        Cmd::Init { shell } => init_cmd::run(shell).await,
         Cmd::Test {
             project, device, name, plain_name, tags, exclude_tags,
             coverage, update_goldens, golden, reporter, concurrency, paths, extra,

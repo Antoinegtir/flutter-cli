@@ -1,8 +1,13 @@
 [package]
 name = "fl-cli"
 version = "0.1.0"
+description = "Modern Flutter CLI with seamless USB→WiFi hot reload"
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
 
 [[bin]]
 name = "fl"
