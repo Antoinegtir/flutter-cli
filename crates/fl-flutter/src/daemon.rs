@@ -126,7 +126,7 @@ impl FlutterDaemon {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 tx_err.send(FlutterEvent::Log {
-                    level: fl_core::LogLevel::Error,
+                    level: classify_stderr_line(&line),
                     message: truncate_log_line(line),
                 }).await.ok();
             }
@@ -134,6 +134,30 @@ impl FlutterDaemon {
 
         Ok(Self { child, stdin })
     }
+}
+
+/// Decide the log level for a stderr line from the Flutter daemon.
+///
+/// Flutter's CLI writes a lot of *informational* output to stderr —
+/// progress hints, sync chatter, harmless retries — alongside actual
+/// errors. Painting all of it red ("ERROR [00008140] Waiting for
+/// another flutter command to release the startup lock…") made the
+/// multi-device dashboard look broken even on a perfectly healthy
+/// run. We pattern-match the few status messages we recognize and
+/// down-rank them to Info / Warn so genuine errors still stand out.
+fn classify_stderr_line(line: &str) -> fl_core::LogLevel {
+    // Startup-lock contention: Flutter serializes parallel `flutter`
+    // invocations behind a global lock. The second device waits — it's
+    // expected behaviour when N devices fire up in parallel.
+    if line.contains("Waiting for another flutter command to release the startup lock") {
+        return fl_core::LogLevel::Info;
+    }
+    // Wireless-debug nudge: noisy but not actionable. The user already
+    // sees the Wi-Fi pre-pair status banner elsewhere.
+    if line.contains("Wireless debugging on iOS") {
+        return fl_core::LogLevel::Warn;
+    }
+    fl_core::LogLevel::Error
 }
 
 /// Cap a log line at 500 chars so ratatui doesn't have to allocate / clamp

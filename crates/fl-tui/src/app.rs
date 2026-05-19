@@ -50,6 +50,17 @@ pub struct AppState {
     pub active_sessions: Vec<fl_core::DeviceSessionSummary>,
     pub logs: VecDeque<LogLine>,
     pub log_filter: Option<String>,
+    /// `Some` while the user is typing the filter (between `/` and
+    /// Enter / Esc). The buffer is mirrored into `log_filter` on every
+    /// keystroke so the log view filters live as you type. Enter
+    /// "freezes" the filter (sets this back to `None`, leaves the
+    /// committed value in `log_filter`); Esc rewinds to whatever the
+    /// filter was before `/` was pressed.
+    pub filter_input: Option<String>,
+    /// Snapshot of `log_filter` at the moment `/` was pressed, used by
+    /// Esc to restore the previous state without making the user
+    /// retype it.
+    pub filter_saved: Option<String>,
     pub fps_samples: VecDeque<f32>,
     pub frame_ui_ms: f32,
     pub frame_raster_ms: f32,
@@ -144,6 +155,8 @@ impl AppState {
             active_sessions: Vec::new(),
             logs: VecDeque::with_capacity(LOG_RING),
             log_filter: None,
+            filter_input: None,
+            filter_saved: None,
             fps_samples: VecDeque::with_capacity(FPS_RING),
             frame_ui_ms: 0.0,
             frame_raster_ms: 0.0,
@@ -475,7 +488,12 @@ impl AppState {
     /// handlers (e.g. a hot-reload dispatcher), without ever blocking.
     pub fn on_key(&mut self, key: fl_core::KeyEvent) {
         // Filter-input mode: keystrokes build up the filter string.
-        if self.log_filter.is_some() {
+        // We check `filter_input` (the active-typing buffer) rather
+        // than `log_filter` (the committed filter) so keys like `c`
+        // pressed *after* the filter is applied are dispatched to
+        // their normal handler instead of being appended to the
+        // already-committed pattern.
+        if self.filter_input.is_some() {
             self.handle_filter_key(key);
             return;
         }
@@ -561,19 +579,30 @@ impl AppState {
             fl_core::KeyEvent::Char('c') => {
                 // Copy the visible log contents to the clipboard, stripped
                 // of level prefixes (INFO/DEBUG/…) and the per-device
-                // short-name prefix (e.g. `[00008140]`). Goal: paste-ready
-                // text containing only the essential message body.
-                let text = self
+                // short-name prefix (e.g. `[00008140]`). When a `/` filter
+                // is active, we copy ONLY the matching lines — same set
+                // the user sees on screen — so "filter then copy" works
+                // exactly as expected for triaging a noisy log.
+                let filter = self.log_filter.as_deref();
+                let matching: Vec<&LogLine> = self
                     .logs
+                    .iter()
+                    .filter(|l| crate::runner::log_matches_filter(filter, l.level, &l.message))
+                    .collect();
+                let text = matching
                     .iter()
                     .map(|l| strip_log_prefix(&l.message))
                     .collect::<Vec<_>>()
                     .join("\n");
+                let count = matching.len();
                 match copy_to_clipboard(&text) {
-                    Ok(()) => self.show_banner(
-                        BannerKind::Success,
-                        &format!("📋 Copied {} log lines to clipboard", self.logs.len()),
-                    ),
+                    Ok(()) => {
+                        let label = match filter {
+                            Some(f) if !f.is_empty() => format!("📋 Copied {count} · `{f}`"),
+                            _ => format!("📋 Copied {count}"),
+                        };
+                        self.show_banner(BannerKind::Success, &label);
+                    }
                     Err(e) => self.show_banner(
                         BannerKind::Error,
                         &format!("Copy failed: {e}"),
@@ -581,10 +610,15 @@ impl AppState {
                 }
             }
             fl_core::KeyEvent::Char('/') => {
-                self.log_filter = Some(String::new());
+                // Snapshot the active filter so Esc can roll back to
+                // it cleanly. Seed the input buffer with that value so
+                // the user can edit instead of retyping from scratch.
+                self.filter_saved = self.log_filter.clone();
+                self.filter_input = Some(self.log_filter.clone().unwrap_or_default());
+                let preview = self.filter_input.clone().unwrap_or_default();
                 self.show_persistent_banner(
                     BannerKind::Info,
-                    "Filter: (level e.g. debug/info/warn/error or text — Enter to apply, Esc to cancel)",
+                    &format!("Filter: {preview}"),
                 );
             }
             _ => {}
@@ -594,24 +628,32 @@ impl AppState {
     fn handle_filter_key(&mut self, key: fl_core::KeyEvent) {
         match key {
             fl_core::KeyEvent::Esc => {
-                self.log_filter = None;
+                // Cancel: drop the in-progress buffer AND restore the
+                // filter that was active right before `/` was pressed.
+                self.filter_input = None;
+                self.log_filter = self.filter_saved.take();
                 self.clear_persistent_banner();
                 self.show_banner(BannerKind::Info, "Filter cancelled");
             }
             fl_core::KeyEvent::Enter => {
+                // Freeze: exit input mode, keep whatever's already in
+                // `log_filter` (the live-typed value). No further work
+                // needed because every keystroke below already mirrors
+                // the buffer into `log_filter`.
+                self.filter_input = None;
+                self.filter_saved = None;
                 self.clear_persistent_banner();
-                let pat = self.log_filter.clone().unwrap_or_default();
-                if pat.is_empty() {
-                    self.log_filter = None;
-                    self.show_banner(BannerKind::Info, "Filter cleared");
-                } else {
-                    self.show_banner(BannerKind::Success, &format!("Filter: {pat}"));
-                }
+                let label = match self.log_filter.as_deref() {
+                    Some(f) if !f.is_empty() => format!("Filter: {f}"),
+                    _ => "Filter cleared".to_string(),
+                };
+                self.show_banner(BannerKind::Success, &label);
             }
             fl_core::KeyEvent::Backspace => {
-                if let Some(f) = self.log_filter.as_mut() {
+                if let Some(f) = self.filter_input.as_mut() {
                     f.pop();
                     let f_clone = f.clone();
+                    self.log_filter = if f_clone.is_empty() { None } else { Some(f_clone.clone()) };
                     self.show_persistent_banner(
                         BannerKind::Info,
                         &format!("Filter: {f_clone}"),
@@ -619,9 +661,12 @@ impl AppState {
                 }
             }
             fl_core::KeyEvent::Char(c) => {
-                if let Some(f) = self.log_filter.as_mut() {
+                if let Some(f) = self.filter_input.as_mut() {
                     f.push(c);
                     let f_clone = f.clone();
+                    // Mirror into the active filter on every keystroke
+                    // so the log view re-filters live as the user types.
+                    self.log_filter = Some(f_clone.clone());
                     self.show_persistent_banner(
                         BannerKind::Info,
                         &format!("Filter: {f_clone}"),

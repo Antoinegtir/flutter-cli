@@ -183,7 +183,7 @@ fn log_style(level: fl_core::LogLevel, theme: &Theme) -> (&'static str, ratatui:
 /// warn, error…) or the message all count as a match. Mirrors the
 /// behavior of the old (now-unused) logs-panel filter so the `/`
 /// keybind keeps the same UX after we moved logs into the scrollback.
-fn log_matches_filter(filter: Option<&str>, level: fl_core::LogLevel, message: &str) -> bool {
+pub(crate) fn log_matches_filter(filter: Option<&str>, level: fl_core::LogLevel, message: &str) -> bool {
     let needle = match filter {
         None => return true,
         Some(s) if s.is_empty() => return true,
