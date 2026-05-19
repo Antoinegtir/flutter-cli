@@ -60,37 +60,86 @@ fn render_single(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme)
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
+            Constraint::Length(1),
         ])
         .split(inner);
 
+    let w = inner.width as usize;
     let cur_fps = state.fps_samples.back().copied().unwrap_or(0.0);
-    let spark_fps = sparkline(&state.fps_samples, 60.0, (inner.width as usize).saturating_sub(14));
+    let n_samples = state.fps_samples.len();
+    let avg_fps = if n_samples == 0 {
+        0.0
+    } else {
+        state.fps_samples.iter().copied().sum::<f32>() / n_samples as f32
+    };
+    let max_fps = state
+        .fps_samples
+        .iter()
+        .cloned()
+        .fold(0.0_f32, f32::max);
+    let real_fps = state.frames_per_sec();
+    let jank_pct = state.jank_ratio() * 100.0;
+
+    // Line 1 — FPS sparkline with current value on the right.
+    let spark_fps = sparkline(&state.fps_samples, 60.0, w.saturating_sub(13));
     let fps_line = Line::styled(
-        format!("FPS    {spark_fps} {cur_fps:>4.1}"),
+        format!("FPS    {spark_fps} {cur_fps:>5.1}"),
         Style::default().fg(fps_color(cur_fps, theme)).bg(theme.bg),
     );
     Paragraph::new(fps_line).render(layout[0], buf);
 
-    let frame_line = Line::styled(
-        format!("Frame  ui {:>4.1}ms  raster {:>4.1}ms", state.frame_ui_ms, state.frame_raster_ms),
-        theme.dimmed(),
-    );
-    Paragraph::new(frame_line).render(layout[1], buf);
+    // Line 2 — frame phase timings + jank ratio. Drops gracefully if the
+    // panel is narrow.
+    let frame_line_text = if w >= 44 {
+        format!(
+            "Frame  ui {:>4.1}ms  raster {:>4.1}ms  jank {:>3.0}%",
+            state.frame_ui_ms, state.frame_raster_ms, jank_pct
+        )
+    } else {
+        format!(
+            "Frame  ui {:>4.1}  raster {:>4.1}  J{:>3.0}%",
+            state.frame_ui_ms, state.frame_raster_ms, jank_pct
+        )
+    };
+    Paragraph::new(Line::styled(frame_line_text, theme.dimmed())).render(layout[1], buf);
 
-    let mem_max = state.mem_samples.iter().cloned().fold(64.0_f32, f32::max);
+    // Line 3 — memory sparkline + used / capacity.
+    let mem_max = state
+        .mem_samples
+        .iter()
+        .cloned()
+        .fold(state.heap_capacity_mb.max(64.0), f32::max);
     let cur_mem = state.mem_samples.back().copied().unwrap_or(0.0);
-    let spark_mem = sparkline(&state.mem_samples, mem_max, (inner.width as usize).saturating_sub(14));
-    let mem_line = Line::styled(
-        format!("Memory {spark_mem} {cur_mem:>4.0}MB"),
+    let mem_label = if state.heap_capacity_mb > 0.0 {
+        format!("{cur_mem:>4.0}/{:>4.0}MB", state.heap_capacity_mb)
+    } else {
+        format!("{cur_mem:>4.0}MB")
+    };
+    let spark_mem = sparkline(
+        &state.mem_samples,
+        mem_max,
+        w.saturating_sub(8 + mem_label.chars().count()),
+    );
+    Paragraph::new(Line::styled(
+        format!("Memory {spark_mem} {mem_label}"),
         theme.base(),
-    );
-    Paragraph::new(mem_line).render(layout[2], buf);
+    ))
+    .render(layout[2], buf);
 
-    let rb = Line::styled(
-        format!("Rebuilds {}/s", state.rebuilds_per_sec),
+    // Line 4 — averaged FPS over the sample window + actual frame rate.
+    let avg_line = if w >= 38 {
+        format!("Avg  {avg_fps:>4.1}fps  rate {real_fps:>3.0}/s  peak {max_fps:>4.1}")
+    } else {
+        format!("Avg {avg_fps:>4.1}  rate {real_fps:>3.0}/s")
+    };
+    Paragraph::new(Line::styled(avg_line, theme.dimmed())).render(layout[3], buf);
+
+    // Line 5 — cumulative frame count, a steady signal you can stopwatch.
+    Paragraph::new(Line::styled(
+        format!("Frames {} since start", state.total_frames),
         theme.dimmed(),
-    );
-    Paragraph::new(rb).render(layout[3], buf);
+    ))
+    .render(layout[4], buf);
 }
 
 fn render_summary(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme, n: usize) {

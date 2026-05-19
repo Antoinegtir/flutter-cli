@@ -1,8 +1,7 @@
 mod build_cmd;
-mod clean_cmd;
 mod cli;
 mod devices_cmd;
-mod doctor_cmd;
+mod external_cmd;
 mod multi;
 mod pub_cmd;
 mod run_cmd;
@@ -35,8 +34,19 @@ fn init_logging() -> anyhow::Result<tracing_appender::non_blocking::WorkerGuard>
 fn install_terminal_panic_hook() {
     let default_hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
+        use std::io::Write;
         let _ = crossterm::terminal::disable_raw_mode();
-        let _ = crossterm::execute!(std::io::stdout(), crossterm::terminal::LeaveAlternateScreen);
+        // Disable ALL mouse tracking modes that might be on (matches
+        // TuiRunner::restore). Skipping this leaves the user's
+        // terminal forwarding raw mouse escapes ("^[[<35;…M") into
+        // their shell after a crash.
+        let mut out = std::io::stdout();
+        let _ = write!(
+            out,
+            "\x1b[?1006l\x1b[?1015l\x1b[?1005l\x1b[?1004l\x1b[?1003l\x1b[?1002l\x1b[?1000l"
+        );
+        let _ = out.flush();
+        let _ = crossterm::execute!(out, crossterm::terminal::LeaveAlternateScreen);
         default_hook(info);
     }));
 }
@@ -54,7 +64,6 @@ async fn main() -> anyhow::Result<()> {
         Cmd::Build { target, project, mode } => build_cmd::run(target, project, mode).await,
         Cmd::Test { project, name } => test_cmd::run(project, name).await,
         Cmd::Pub { sub, project } => pub_cmd::run(sub, project).await,
-        Cmd::Doctor => doctor_cmd::run().await,
-        Cmd::Clean { project } => clean_cmd::run(project).await,
+        Cmd::External(args) => external_cmd::run(args).await,
     }
 }

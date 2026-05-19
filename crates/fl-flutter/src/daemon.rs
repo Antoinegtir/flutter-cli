@@ -15,6 +15,58 @@ pub struct FlutterDaemon {
 }
 
 impl FlutterDaemon {
+    /// Spawn `flutter attach --machine -d <device_id> --debug-url <ws> [extra_args]`
+    /// and stream events. Used by the Wi-Fi takeover flow: after a USB
+    /// unplug we attach a fresh daemon to the still-running VM Service
+    /// over Apple's coredevice tunnel. The new daemon owns the compile
+    /// pipeline (frontend_server) so hot reload actually applies new
+    /// source code instead of just calling `reloadSources` on stale
+    /// bytecode.
+    pub async fn spawn_attach(
+        flutter: &Path,
+        project_dir: &Path,
+        device_id: &str,
+        debug_url: &str,
+        extra_args: &[&str],
+        tx: Sender<FlutterEvent>,
+    ) -> anyhow::Result<Self> {
+        // Run in verbose mode so we get the internal Flutter / lldb /
+        // devicectl chatter on stderr. We need this to diagnose why
+        // the post-unplug attach fails — without `-v` Flutter swallows
+        // the actual transport / debugserver errors and emits only the
+        // generic "Connecting to the VM Service is taking longer than
+        // expected" message.
+        let mut args: Vec<&str> =
+            vec!["-v", "attach", "--machine", "-d", device_id, "--debug-url", debug_url];
+        args.extend_from_slice(extra_args);
+
+        // Resolve the iOS SDK root and inject as SDKROOT. The Flutter
+        // `native_assets` build target (used during incremental
+        // compiles for FFI-shipped native libraries) demands a
+        // `SdkRoot` define; when `flutter attach` runs outside of an
+        // xcodebuild context, no SDKROOT env var is set and the
+        // target fails with "required define SdkRoot but it was not
+        // provided" — which kills the post-unplug hot reload.
+        //
+        // We *unconditionally* (re)set SDKROOT to whatever `xcrun
+        // --show-sdk-path` returns now. A stale value can leak in
+        // from the parent shell (e.g. a previous `flutter run` that
+        // left SDKROOT pointed at iPhoneSimulator's SDK) and we want
+        // to be authoritative.
+        let mut env: Vec<(String, String)> = Vec::new();
+        let probe = tokio::process::Command::new("xcrun")
+            .args(["--sdk", "iphoneos", "--show-sdk-path"])
+            .output()
+            .await;
+        if let Ok(out) = probe {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path.is_empty() {
+                env.push(("SDKROOT".to_string(), path));
+            }
+        }
+        Self::spawn_with_args(flutter, project_dir, &args, &env, tx).await
+    }
+
     /// Spawn `flutter run --machine -d <device_id> [extra_args]` and stream events into `tx`.
     pub async fn spawn(
         flutter: &Path,
@@ -25,14 +77,26 @@ impl FlutterDaemon {
     ) -> anyhow::Result<Self> {
         let mut args: Vec<&str> = vec!["run", "--machine", "-d", device_id];
         args.extend_from_slice(extra_args);
-        let mut child = Command::new(flutter)
-            .current_dir(project_dir)
-            .args(&args)
+        Self::spawn_with_args(flutter, project_dir, &args, &[], tx).await
+    }
+
+    async fn spawn_with_args(
+        flutter: &Path,
+        project_dir: &Path,
+        args: &[&str],
+        env: &[(String, String)],
+        tx: Sender<FlutterEvent>,
+    ) -> anyhow::Result<Self> {
+        let mut cmd = Command::new(flutter);
+        cmd.current_dir(project_dir)
+            .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .stdin(Stdio::piped())
-            .spawn()
-            .context("spawning flutter")?;
+            .stdin(Stdio::piped());
+        for (k, v) in env {
+            cmd.env(k, v);
+        }
+        let mut child = cmd.spawn().context("spawning flutter")?;
 
         let stdout = child.stdout.take().context("no stdout")?;
         let stderr = child.stderr.take().context("no stderr")?;

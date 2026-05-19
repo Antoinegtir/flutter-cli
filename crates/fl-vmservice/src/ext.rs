@@ -25,6 +25,22 @@ impl VmServiceClient {
         .await
     }
 
+    /// Set the Flutter framework's brightness override to a specific state,
+    /// or `None` to clear the override and follow the host system again.
+    /// Mirrors `flutter run`'s `b` key cycle (system → light → dark → system).
+    pub async fn set_brightness(&self, isolate_id: &str, value: Option<bool>) -> anyhow::Result<Value> {
+        let v = match value {
+            Some(true) => "Brightness.dark",
+            Some(false) => "Brightness.light",
+            None => "default",
+        };
+        self.call(
+            "ext.flutter.brightnessOverride",
+            json!({ "isolateId": isolate_id, "value": v }),
+        )
+        .await
+    }
+
     pub async fn toggle_debug_paint(&self, isolate_id: &str, enabled: bool) -> anyhow::Result<Value> {
         self.call(
             "ext.flutter.debugPaint",
@@ -48,6 +64,21 @@ impl VmServiceClient {
             json!({ "isolateId": isolate_id, "enabled": enabled }),
         )
         .await
+    }
+
+    /// Snapshot the isolate's heap usage. Returns `(used_mb, capacity_mb)`.
+    /// We poll this periodically because the VM Service doesn't push memory
+    /// stats — `streamListen("GC")` only emits GC events, not totals.
+    pub async fn get_memory_usage_mb(&self, isolate_id: &str) -> anyhow::Result<(f64, f64)> {
+        let v = self
+            .call("getIsolateMemoryUsage", json!({ "isolateId": isolate_id }))
+            .await?;
+        // VM service returns bytes for heapUsage / externalUsage / heapCapacity.
+        let heap_used = v.get("heapUsage").and_then(Value::as_f64).unwrap_or(0.0);
+        let external = v.get("externalUsage").and_then(Value::as_f64).unwrap_or(0.0);
+        let capacity = v.get("heapCapacity").and_then(Value::as_f64).unwrap_or(0.0);
+        let mb = 1024.0 * 1024.0;
+        Ok(((heap_used + external) / mb, capacity / mb))
     }
 
     pub async fn get_first_isolate_id(&self) -> anyhow::Result<String> {

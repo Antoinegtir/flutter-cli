@@ -182,28 +182,10 @@ fn headless_pub_get_emits_got_event() {
     assert!(out.contains("shiny_pkg"), "missing added package:\n{out}");
 }
 
-#[test]
-fn headless_doctor_emits_sections() {
-    ensure_binary_built();
-    let scenario = fixtures().join("scenarios/doctor.txt");
-    let out = run_fl_with_env(
-        &["doctor"],
-        &[("FL_FLUTTER_DOCTOR_SCENARIO", &scenario)],
-    );
-    assert!(out.contains("Section"), "missing Section event:\n{out}");
-    assert!(out.contains("Done"), "missing Done event:\n{out}");
-}
-
-#[test]
-fn headless_clean_completes_with_zero_freed() {
-    ensure_binary_built();
-    let pubspec = pubspec_in_workspace();
-    let out = run_fl_with_env(
-        &["clean", "--project", pubspec.to_str().unwrap()],
-        &[],
-    );
-    assert!(out.contains("Done"), "missing Done event:\n{out}");
-}
+// `fl doctor` and `fl clean` are no longer handled by `fl` — they now
+// pass through to the real `flutter` binary. The previous integration
+// tests asserted internal Section/Done events from our own TUIs; with
+// the pass-through model there's nothing fl-specific left to test.
 
 #[test]
 fn headless_multi_device_emits_two_app_started() {

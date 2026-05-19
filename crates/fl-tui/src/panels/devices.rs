@@ -9,6 +9,38 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
+/// Map a Flutter daemon `platform` string (e.g. `ios`, `android-arm64`,
+/// `web-javascript`, `darwin`) to a plain emoji that renders without a
+/// Nerd Font. Returns an empty string for unknown values so the row
+/// layout stays stable.
+pub fn platform_icon(platform: &str) -> &'static str {
+    let p = platform.to_ascii_lowercase();
+    if p.starts_with("ios")
+        || p.starts_with("ipad")
+        || p.starts_with("watch")
+        || p.contains("darwin")
+        || p.contains("macos")
+    {
+        "🍎"
+    } else if p.starts_with("android") {
+        "🤖"
+    } else if p.starts_with("web")
+        || p.contains("chrome")
+        || p.contains("firefox")
+        || p.contains("edge")
+    {
+        "🌐"
+    } else if p.starts_with("windows") || p.contains("win") {
+        "🪟"
+    } else if p.starts_with("linux") {
+        "🐧"
+    } else if p.starts_with("fuchsia") {
+        "🟣"
+    } else {
+        ""
+    }
+}
+
 fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>> {
     let (bullet, bullet_color) = match session.state {
         DeviceSessionState::Ready => ('●', theme.success),
@@ -30,13 +62,23 @@ fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>
     };
     let palette = [theme.accent, theme.cyan, theme.success, theme.warn];
     let prefix_color = palette[prefix_color_index(&session.short_name)];
-    let plat_display = session.platform.as_deref().map(|p| if p == "ios-simulator" { "ios-sim" } else { p }).unwrap_or("");
+    let plat_raw = session.platform.as_deref().unwrap_or("");
+    let plat_label: &str = if plat_raw == "ios-simulator" { "ios-sim" } else { plat_raw };
+    let plat_glyph = platform_icon(plat_raw);
+    // " {glyph} {label}" with the label left-padded so subsequent
+    // columns (connection icon, state) stay aligned across rows. We
+    // pad to 9 so widths match the previous layout exactly.
+    let plat_text = if plat_glyph.is_empty() {
+        format!("{plat_label:<9}")
+    } else {
+        format!("{plat_glyph}  {plat_label:<7}")
+    };
     let row1 = Line::from(vec![
         Span::styled(format!("{bullet} "), Style::default().fg(bullet_color).bg(theme.bg)),
         Span::styled(format!("[{:<8}] ", session.short_name), Style::default().fg(prefix_color).bg(theme.bg)),
         Span::styled(session.display_name.clone(), theme.base()),
         Span::raw("  "),
-        Span::styled(format!("{plat_display:<9}"), theme.dimmed()),
+        Span::styled(plat_text, theme.dimmed()),
         Span::raw(" "),
         Span::styled(icon.to_string(), theme.dimmed()),
         Span::raw("  "),
@@ -161,5 +203,24 @@ mod tests {
             text.push('\n');
         }
         assert!(text.contains("ios"), "missing platform tag, got:\n{text}");
+        assert!(
+            text.contains("🍎"),
+            "expected apple emoji next to ios platform, got:\n{text}"
+        );
+    }
+
+    #[test]
+    fn platform_icon_maps_known_strings() {
+        assert_eq!(platform_icon("ios"), "🍎");
+        assert_eq!(platform_icon("ios-simulator"), "🍎");
+        assert_eq!(platform_icon("ipados"), "🍎");
+        assert_eq!(platform_icon("watchos"), "🍎");
+        assert_eq!(platform_icon("darwin-arm64"), "🍎");
+        assert_eq!(platform_icon("android-arm64"), "🤖");
+        assert_eq!(platform_icon("web-javascript"), "🌐");
+        assert_eq!(platform_icon("windows-x64"), "🪟");
+        assert_eq!(platform_icon("linux-x64"), "🐧");
+        assert_eq!(platform_icon(""), "");
+        assert_eq!(platform_icon("unknownos"), "");
     }
 }

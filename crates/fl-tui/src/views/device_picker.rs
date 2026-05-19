@@ -109,9 +109,16 @@ impl View for DevicePickerView {
                 ConnectionKind::Wifi => "WiFi",
                 ConnectionKind::Usb => "USB",
             };
-            let plat = d.platform.as_deref().map(|p| if p == "ios-simulator" { "ios-sim" } else { p }).unwrap_or("");
+            let plat_raw = d.platform.as_deref().unwrap_or("");
+            let plat_label = if plat_raw == "ios-simulator" { "ios-sim" } else { plat_raw };
+            let plat_glyph = crate::panels::devices::platform_icon(plat_raw);
+            let plat_field = if plat_glyph.is_empty() {
+                format!("{plat_label:<9}")
+            } else {
+                format!("{plat_glyph}  {plat_label:<7}")
+            };
             lines.push(Line::styled(
-                format!("{arrow}{bullet} {:<22} {:<9} {} · {}", d.name, plat, conn, d.serial),
+                format!("{arrow}{bullet} {:<22} {plat_field} {} · {}", d.name, conn, d.serial),
                 if i == self.cursor {
                     Style::default().fg(theme.accent).bg(theme.bg)
                 } else {

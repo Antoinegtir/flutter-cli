@@ -55,17 +55,39 @@ fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
         .unwrap_or(true);
     let state = if tunnel_connected { DeviceState::Online } else { DeviceState::Offline };
 
+    // Apple's coredevice tunnel IPv6 — this is reachable from the Mac
+    // regardless of whether the cable is plugged. We use it to talk
+    // directly to the device's Dart VM Service (which we've patched
+    // Flutter to bind on `::0`) so hot reload survives a USB unplug.
+    let tunnel_ip = conn
+        .and_then(|c| c.get("tunnelIPAddress"))
+        .and_then(Value::as_str)
+        .map(str::to_string);
+
     Some(Device {
         serial: udid,
         name,
         model: hw.get("marketingName").and_then(Value::as_str).map(str::to_string),
         connection,
         state,
-        ip: None,
+        ip: tunnel_ip,
         android_version: os_version,
         battery: None,
         platform: Some(platform),
     })
+}
+
+/// Look up the current coredevice tunnel IPv6 for a specific UDID by
+/// shelling out to `xcrun devicectl`. Returns `None` if devicectl has no
+/// tunnel for that device (e.g. it was never paired wirelessly).
+pub async fn tunnel_ip_for_udid<R: fl_adb::CommandRunner>(
+    xcrun: &crate::xcrun::Xcrun<R>,
+    udid: &str,
+) -> Option<String> {
+    let devs = crate::watcher::list_apple_devices(xcrun).await;
+    devs.into_iter()
+        .find(|d| d.serial == udid)
+        .and_then(|d| d.ip)
 }
 
 /// Parse `xcrun simctl list devices --json` into `Device`s.

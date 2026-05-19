@@ -3,21 +3,21 @@ source: crates/fl-tui/src/render.rs
 expression: dump
 ---
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
-│ ☀  fl ── my_app · debug · no device                                            Building…  ⏱ 00:00│
+│ ⚙️   fl ── my_app · debug · no device                                           Building…  ⏱ 00:00│
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘
-┌ Logs ────────────────────────────────────────────────────┐┌ Performance ─────────────────────────┐
-│INFO  App started                                         ││FPS                              0.0  │
-│                                                          ││Frame  ui  0.0ms  raster  0.0ms       │
-│                                                          ││Memory                             0MB│
-│                                                          ││Rebuilds 0/s                          │
+┌ Performance ─────────────────────────────────────────────┐┌ Devices ─────────────────────────────┐
+│FPS                                                    0.0││(aucun)                               │
+│Frame  ui  0.0ms  raster  0.0ms  jank   0%                ││                                      │
+│Memory                                                 0MB││                                      │
+│Avg   0.0fps  rate   0/s  peak  0.0                       ││                                      │
+│Frames 0 since start                                      ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
-│                                                          │└──────────────────────────────────────┘
-│                                                          │┌ Devices ─────────────────────────────┐
-│                                                          ││(aucun)                               │
+│                                                          ││                                      │
+│                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
@@ -25,4 +25,4 @@ expression: dump
 │                                                          ││                                      │
 │                                                          ││                                      │
 └──────────────────────────────────────────────────────────┘└──────────────────────────────────────┘
- [r] reload  [R] restart  [b] theme  [v] verbose  [q] quit
+ ⏳  building app…  [/] filter  [c] copy 📋   [q] quit

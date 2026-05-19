@@ -43,12 +43,13 @@ pub enum Cmd {
         #[command(subcommand)] sub: PubSub,
         #[arg(short, long, global = true)] project: Option<PathBuf>,
     },
-    /// flutter doctor with a TUI.
-    Doctor,
-    /// flutter clean with byte counting.
-    Clean {
-        #[arg(short, long)] project: Option<PathBuf>,
-    },
+    /// Forward any other subcommand verbatim to `flutter` with stdio
+    /// inherited. Lets `fl doctor`, `fl clean`, `fl analyze`, etc. work
+    /// out of the box without us re-implementing each Flutter command
+    /// as a custom TUI. The first element of the Vec is the subcommand
+    /// itself, the rest are its args.
+    #[command(external_subcommand)]
+    External(Vec<String>),
 }
 
 #[derive(Debug, Clone, Subcommand)]
@@ -156,8 +157,29 @@ mod tests {
     }
 
     #[test]
-    fn parses_doctor_and_clean() {
-        assert!(matches!(Cli::parse_from(["fl", "doctor"]).cmd, Cmd::Doctor));
-        assert!(matches!(Cli::parse_from(["fl", "clean"]).cmd, Cmd::Clean { .. }));
+    fn unknown_subcommand_falls_through_to_external_pass_through() {
+        // doctor / clean / analyze / anything-we-haven't-claimed should
+        // be forwarded verbatim to the `flutter` binary.
+        let c = Cli::parse_from(["fl", "doctor"]);
+        assert!(matches!(&c.cmd, Cmd::External(args) if args == &vec!["doctor".to_string()]));
+
+        let c = Cli::parse_from(["fl", "clean", "--no-color"]);
+        match c.cmd {
+            Cmd::External(args) => {
+                assert_eq!(args, vec!["clean".to_string(), "--no-color".to_string()]);
+            }
+            _ => panic!("expected External fall-through"),
+        }
+
+        let c = Cli::parse_from(["fl", "analyze", "lib/main.dart"]);
+        match c.cmd {
+            Cmd::External(args) => {
+                assert_eq!(
+                    args,
+                    vec!["analyze".to_string(), "lib/main.dart".to_string()]
+                );
+            }
+            _ => panic!(),
+        }
     }
 }

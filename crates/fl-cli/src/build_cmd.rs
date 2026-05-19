@@ -33,6 +33,9 @@ pub async fn run(target: BuildTarget, project: Option<PathBuf>, mode: BuildMode)
         let mut child = Command::new(&flutter_path)
             .current_dir(&project_dir)
             .args(&args)
+            // Detach stdin so the child can't steal mouse-tracking
+            // bytes from the TTY (see test_cmd.rs for the full story).
+            .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()

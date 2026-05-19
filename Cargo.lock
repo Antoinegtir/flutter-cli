@@ -522,6 +522,7 @@ dependencies = [
  "anyhow",
  "fl-core",
  "futures-util",
+ "mdns-sd",
  "serde",
  "serde_json",
  "tokio",

@@ -9,12 +9,28 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [o] platform  [w] wifi  [v] verbose  [/] filter  [c] clear  [q] quit ";
-const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [v] verbose  [q] quit ";
-const FOOTER_SHORT: &str = " r reload · R restart · v verbose · q quit ";
+const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [P] perf  [o] platform  [/] filter  [c] copy 📋  [q] quit ";
+const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [q] quit ";
+const FOOTER_SHORT: &str = " r reload · q quit ";
+
+// Pre-ready variants: shown while the app is still compiling /
+// installing / waiting on VM Service. We omit r/R/b/p/P/o because
+// they're no-ops at that point — the user pressing them just spams
+// the log with "not ready" warnings.
+//
+// The prefix (the "building" hint) shimmers; the suffix (the static
+// keys) is rendered with the normal dimmed footer style. Splitting
+// avoids running the shimmer animation over key labels, which would
+// look messy.
+const FOOTER_FULL_PRE_READY_SHIMMER: &str = " ⏳ building app… ";
+const FOOTER_FULL_PRE_READY_STATIC: &str = " [/] filter  [c] copy 📋  [q] quit ";
+const FOOTER_MEDIUM_PRE_READY_SHIMMER: &str = " ⏳ building… ";
+const FOOTER_MEDIUM_PRE_READY_STATIC: &str = " [q] quit ";
+const FOOTER_SHORT_PRE_READY_SHIMMER: &str = " ⏳ building ";
+const FOOTER_SHORT_PRE_READY_STATIC: &str = "· q quit ";
 
 const MIN_WIDTH: u16 = 50;
-const MIN_HEIGHT: u16 = 12;
+const MIN_HEIGHT: u16 = 8;
 const NARROW_WIDTH: u16 = 90;
 const HEADER_HEIGHT: u16 = 3;
 
@@ -23,19 +39,46 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
         render_too_small(area, buf, theme);
         return;
     }
+    // Inline-viewport layout (Claude-Code style). Logs no longer live
+    // in this buffer — they're printed directly into the terminal's
+    // scrollback (see `TuiRunner::print_above_viewport`) and scroll
+    // naturally above the box. The ASCII banner is also printed once
+    // at init into scrollback. What remains here, pinned to the
+    // bottom of the terminal, is the live status surface:
+    //   1. fl-info status header   (3 rows: app · mode · device + chrono;
+    //                              banners take over the title slot)
+    //   2. Performance + Devices   (flex — takes the remaining rows)
+    //   3. Footer keybinds         (1 row)
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(HEADER_HEIGHT),
-            Constraint::Min(6),
+            Constraint::Min(4),
             Constraint::Length(1),
         ])
         .split(area);
     render_header(layout[0], buf, state, theme);
-    render_body(layout[1], buf, state, theme);
-    render_footer(layout[2], buf, theme);
-    if let Some(b) = &state.banner {
-        render_banner(area, buf, &b.message, b.kind, theme);
+    render_status_panels(layout[1], buf, state, theme);
+    render_footer(layout[2], buf, state, theme);
+}
+
+/// Performance + Devices panels in the lower portion of the viewport,
+/// side-by-side on wide terminals and stacked on narrow ones.
+fn render_status_panels(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    if area.width < NARROW_WIDTH {
+        let cols = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(area);
+        panels::performance::render_performance(cols[0], buf, state, theme);
+        panels::devices::render_devices(cols[1], buf, state, theme);
+    } else {
+        let cols = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
+            .split(area);
+        panels::performance::render_performance(cols[0], buf, state, theme);
+        panels::devices::render_devices(cols[1], buf, state, theme);
     }
 }
 
@@ -73,10 +116,19 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     let inner = block.inner(area);
     block.render(area, buf);
 
-    // Status label that shimmers while something is happening.
-    // `Refresh…` takes precedence over `Building…` so the user gets visual
-    // confirmation immediately when they hit r/R, even mid-build.
-    let status_text: Option<&'static str> = if state.reload_flash_alpha() > 0.05 {
+    // Status label that shimmers while something is happening. Order
+    // matters — most urgent / most-likely-to-block-the-user wins:
+    //   1. Wi-Fi takeover preparing — a session is mid-attach, keys
+    //      will refuse until ready
+    //   2. Refresh — user just hit r/R
+    //   3. Building — first compile not finished yet
+    let takeover_in_progress = state
+        .active_sessions
+        .iter()
+        .any(|s| matches!(s.state, fl_core::DeviceSessionState::Reloading));
+    let status_text: Option<&'static str> = if takeover_in_progress {
+        Some("📶 Wi-Fi…")
+    } else if state.reload_flash_alpha() > 0.05 {
         Some("Refresh…")
     } else if state.compile_finished.is_none() {
         Some("Building…")
@@ -99,20 +151,58 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         .constraints([Constraint::Length(title_width), Constraint::Length(right_width)])
         .split(inner);
 
-    // Title with brightness indicator.
-    let brightness_icon = if state.brightness_dark.load(std::sync::atomic::Ordering::Relaxed) {
-        '☾'
-    } else {
-        '☀'
-    };
-    let title = format!(" {brightness_icon}  fl ── {} · {} · {}", state.app_name, state.mode, device);
-    let title = truncate_to_width(&title, cols[0].width as usize);
+    // Title is ALWAYS shown on the left — the banner doesn't replace
+    // it, it overlays the center of the bar (see below). Keeps the
+    // user oriented (which app / device / mode) even while a transient
+    // status flashes by.
+    let brightness_icon: &str =
+        match state.brightness_state.load(std::sync::atomic::Ordering::Relaxed) {
+            crate::app::BRIGHTNESS_LIGHT => "☀️",
+            crate::app::BRIGHTNESS_DARK => "🌙",
+            _ => "⚙️",
+        };
+    let title_text = format!(
+        " {brightness_icon}  fl ── {} · {} · {}",
+        state.app_name, state.mode, device
+    );
+    let title = truncate_to_width(&title_text, cols[0].width as usize);
     Paragraph::new(Line::styled(
         title,
         Style::default().fg(theme.accent).bg(bg)
             .add_modifier(ratatui::style::Modifier::BOLD),
     ))
     .render(cols[0], buf);
+
+    // Banner overlay (the "snackbar"). When set, paint it centered
+    // horizontally in the header bar — overlapping the *middle* of
+    // the title line so the user notices it but the left-aligned
+    // title still shows on either side. Auto-expires after ~3 s
+    // (see AppState::show_banner) and the bar returns to normal.
+    if let Some(b) = &state.banner {
+        let kind_color = match b.kind {
+            BannerKind::Info    => theme.cyan,
+            BannerKind::Warn    => theme.warn,
+            BannerKind::Error   => theme.error,
+            BannerKind::Success => theme.success,
+        };
+        let label = format!(" {} ", b.message);
+        let label_w = label.chars().count() as u16;
+        // Only render if the bar is wide enough to fit the label
+        // without crushing the title. If not, skip — better to drop
+        // the snackbar than render an unreadable smush.
+        if label_w + 4 <= inner.width {
+            let x = inner.x + (inner.width.saturating_sub(label_w)) / 2;
+            let overlay = Rect { x, y: inner.y, width: label_w, height: 1 };
+            Paragraph::new(Line::styled(
+                label,
+                Style::default()
+                    .fg(theme.bg)
+                    .bg(kind_color)
+                    .add_modifier(ratatui::style::Modifier::BOLD),
+            ))
+            .render(overlay, buf);
+        }
+    }
 
     // Right side: shimmer when something is happening, static otherwise.
     if status_text.is_some() {
@@ -176,46 +266,45 @@ fn format_elapsed(d: std::time::Duration) -> String {
     }
 }
 
-fn render_body(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
-    if area.width < NARROW_WIDTH {
-        // Narrow terminal: stack panels vertically.
-        // Logs gets the largest share since it's the most useful in cramped layouts.
-        let rows = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Percentage(55),
-                Constraint::Percentage(25),
-                Constraint::Percentage(20),
-            ])
-            .split(area);
-        panels::logs::render_logs(rows[0], buf, state, theme);
-        panels::performance::render_performance(rows[1], buf, state, theme);
-        panels::devices::render_devices(rows[2], buf, state, theme);
-    } else {
-        // Standard horizontal split.
-        let cols = Layout::default()
-            .direction(Direction::Horizontal)
-            .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-            .split(area);
-        panels::logs::render_logs(cols[0], buf, state, theme);
-        let right = Layout::default()
-            .direction(Direction::Vertical)
-            .constraints([Constraint::Percentage(55), Constraint::Percentage(45)])
-            .split(cols[1]);
-        panels::performance::render_performance(right[0], buf, state, theme);
-        panels::devices::render_devices(right[1], buf, state, theme);
+fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    // Post-VM-Service: a flat dimmed line with all the action keys.
+    if state.app_ready() {
+        let chosen = if area.width as usize >= FOOTER_FULL.chars().count() {
+            FOOTER_FULL
+        } else if area.width as usize >= FOOTER_MEDIUM.chars().count() {
+            FOOTER_MEDIUM
+        } else {
+            FOOTER_SHORT
+        };
+        Paragraph::new(Line::styled(chosen, theme.dimmed())).render(area, buf);
+        return;
     }
-}
 
-fn render_footer(area: Rect, buf: &mut Buffer, theme: &Theme) {
-    let chosen = if area.width as usize >= FOOTER_FULL.chars().count() {
-        FOOTER_FULL
-    } else if area.width as usize >= FOOTER_MEDIUM.chars().count() {
-        FOOTER_MEDIUM
+    // Pre-ready: shimmer the "building app…" hint to signal "work in
+    // progress, please wait" — the same animation we use for the
+    // header "Building…" status so the two feel unified.
+    let (shimmer_text, static_text) = if area.width as usize
+        >= (FOOTER_FULL_PRE_READY_SHIMMER.chars().count()
+            + FOOTER_FULL_PRE_READY_STATIC.chars().count())
+    {
+        (FOOTER_FULL_PRE_READY_SHIMMER, FOOTER_FULL_PRE_READY_STATIC)
+    } else if area.width as usize
+        >= (FOOTER_MEDIUM_PRE_READY_SHIMMER.chars().count()
+            + FOOTER_MEDIUM_PRE_READY_STATIC.chars().count())
+    {
+        (FOOTER_MEDIUM_PRE_READY_SHIMMER, FOOTER_MEDIUM_PRE_READY_STATIC)
     } else {
-        FOOTER_SHORT
+        (FOOTER_SHORT_PRE_READY_SHIMMER, FOOTER_SHORT_PRE_READY_STATIC)
     };
-    Paragraph::new(Line::styled(chosen, theme.dimmed())).render(area, buf);
+
+    let phase = shimmer_phase(state.started_at.elapsed());
+    let shimmer = shimmer_line(shimmer_text, theme.dim, theme.accent, phase, theme.bg);
+    let mut spans = shimmer.spans;
+    spans.push(ratatui::text::Span::styled(
+        static_text.to_string(),
+        theme.dimmed(),
+    ));
+    Paragraph::new(Line::from(spans)).render(area, buf);
 }
 
 fn truncate_to_width(s: &str, max_chars: usize) -> String {
@@ -229,24 +318,6 @@ fn truncate_to_width(s: &str, max_chars: usize) -> String {
         return "…".to_string();
     }
     s.chars().take(max_chars - 1).collect::<String>() + "…"
-}
-
-fn render_banner(area: Rect, buf: &mut Buffer, msg: &str, kind: BannerKind, theme: &Theme) {
-    let color = match kind {
-        BannerKind::Info => theme.cyan,
-        BannerKind::Warn => theme.warn,
-        BannerKind::Error => theme.error,
-        BannerKind::Success => theme.success,
-    };
-    let line = format!(" {msg} ");
-    let target = Rect {
-        x: area.x + (area.width.saturating_sub(line.chars().count() as u16)) / 2,
-        y: area.y + 1,
-        width: line.chars().count() as u16,
-        height: 1,
-    };
-    Paragraph::new(Line::styled(line, Style::default().fg(theme.bg).bg(color)))
-        .render(target, buf);
 }
 
 fn lerp(a: ratatui::style::Color, b: ratatui::style::Color, t: f32) -> ratatui::style::Color {
@@ -290,27 +361,43 @@ mod tests {
 
     #[test]
     fn narrow_terminal_uses_vertical_stack() {
-        // 70-wide is below NARROW_WIDTH (90) → vertical stack.
+        // 70-wide is below NARROW_WIDTH (90) → Performance/Devices stack
+        // vertically. Logs are NOT in the inline viewport any more (they
+        // flow into the terminal's scrollback via print_above_viewport),
+        // so the only two panels we expect to find are these two.
         let mut buf = Buffer::empty(Rect::new(0, 0, 70, 30));
         let state = AppState::new("my_app".into(), "debug".into());
         render(Rect::new(0, 0, 70, 30), &mut buf, &state, &Theme::TOKYO_NIGHT);
         let text = dump(&buf);
-        // All three panel titles must be present.
-        assert!(text.contains("Logs"), "missing Logs panel");
         assert!(text.contains("Performance"), "missing Performance panel");
         assert!(text.contains("Devices"), "missing Devices panel");
     }
 
     #[test]
-    fn footer_falls_back_to_short_when_terminal_is_narrow() {
+    fn footer_pre_ready_hides_extension_keys_and_shows_building_hint() {
+        // A fresh AppState has vm_connected == false → footer should
+        // be the pre-ready variant and OMIT r/R/b/p/P/o entirely.
         let mut buf = Buffer::empty(Rect::new(0, 0, 60, 20));
         let state = AppState::new("my_app".into(), "debug".into());
         render(Rect::new(0, 0, 60, 20), &mut buf, &state, &Theme::TOKYO_NIGHT);
         let text = dump(&buf);
-        // FOOTER_SHORT contains "r reload · R restart"
+        assert!(text.contains("building"), "missing building hint:\n{text}");
         assert!(
-            text.contains("r reload") || text.contains("[r] reload"),
-            "footer missing reload entry:\n{text}"
+            !text.contains("r reload") && !text.contains("[r] reload"),
+            "pre-ready footer should NOT advertise reload:\n{text}"
+        );
+    }
+
+    #[test]
+    fn footer_shows_full_keys_once_vm_service_is_ready() {
+        let mut buf = Buffer::empty(Rect::new(0, 0, 120, 24));
+        let mut state = AppState::new("my_app".into(), "debug".into());
+        state.vm_connected = true;
+        render(Rect::new(0, 0, 120, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        assert!(
+            text.contains("[r] reload"),
+            "post-ready footer should advertise reload:\n{text}"
         );
     }
 

@@ -2,6 +2,7 @@
 
 pub mod client;
 pub mod ext;
+pub mod mdns;
 pub mod rpc;
 
 #[cfg(test)]

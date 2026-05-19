@@ -66,6 +66,9 @@ where F: FnOnce(&str) -> PubEvent {
     let mut child = Command::new(flutter)
         .current_dir(project)
         .args(args)
+        // Detach stdin so the child can't steal mouse-tracking bytes
+        // from the TTY (see test_cmd.rs).
+        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

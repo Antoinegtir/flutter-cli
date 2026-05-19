@@ -115,9 +115,17 @@ fn stream_event_to_vm_event(stream_id: &str, event: &Value) -> Option<VmEvent> {
         ("Isolate", _) => Some(VmEvent::IsolateEvent(kind.to_string())),
         ("Extension", "Extension") => {
             let name = event.get("extensionKind").and_then(Value::as_str).unwrap_or("");
-            if name == "Flutter.FrameTiming" {
+            // Flutter emits `Flutter.Frame` automatically in debug/profile
+            // builds with fields `build` and `raster` (microseconds). Some
+            // older builds use `Flutter.FrameTiming` with `ui`/`raster` —
+            // accept either to stay compatible.
+            if name == "Flutter.Frame" || name == "Flutter.FrameTiming" {
                 let data = event.get("extensionData")?;
-                let ui = data.get("ui").and_then(Value::as_u64).unwrap_or(0);
+                let ui = data
+                    .get("build")
+                    .or_else(|| data.get("ui"))
+                    .and_then(Value::as_u64)
+                    .unwrap_or(0);
                 let raster = data.get("raster").and_then(Value::as_u64).unwrap_or(0);
                 Some(VmEvent::FrameTiming { ui_micros: ui, raster_micros: raster })
             } else {
