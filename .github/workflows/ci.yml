@@ -1,0 +1,39 @@
+name: ci
+
+# Runs on every push to main and every PR. Catches breakage before
+# release tags are cut. Kept lean — fmt + clippy + test on a single
+# runner so feedback is fast; release-pipeline does the cross-target
+# compilation.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  check:
+    name: fmt · clippy · test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        # Reads `rust-toolchain.toml` at the workspace root so CI uses
+        # the exact same Rust version contributors see locally.
+        run: rustup show
+
+      - name: Cache cargo registry + build
+        uses: Swatinem/rust-cache@v2
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets
+
+      - name: cargo test
+        run: cargo test --workspace --locked
