@@ -7,7 +7,10 @@ use clap::ValueEnum;
 pub enum AppEvent {
     Device(DeviceEvent),
     Flutter(FlutterEvent),
-    Vm(VmEvent),
+    /// VM Service event, tagged with the device serial it originated from
+    /// so the TUI can keep per-device perf samples (FPS, memory) when
+    /// multiple devices are running in parallel.
+    Vm { serial: String, event: VmEvent },
     Key(KeyEvent),
     Tick,
 }

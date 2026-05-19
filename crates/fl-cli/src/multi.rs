@@ -79,6 +79,35 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         .await
         .ok();
 
+    // Push the resolved display name into AppState immediately via a
+    // synthetic Discovered event. Otherwise the Performance / Devices
+    // panels show the raw serial until `track_devices` happens to fire
+    // another Discovered (which itself carries `name == serial` since
+    // the `host:track-devices` payload has no model field). Doing this
+    // here means panels render "SM A145R" instead of "R8YW90VSSGD"
+    // from the first frame the session is alive.
+    if !session.display_name.is_empty() && session.display_name != session.serial {
+        let platform = if usb_serial_to_pair.is_some() {
+            Some("android".to_string())
+        } else {
+            None
+        };
+        event_tx
+            .send(AppEvent::Device(DeviceEvent::Discovered(fl_core::Device {
+                serial: session.serial.clone(),
+                name: session.display_name.clone(),
+                model: Some(session.display_name.clone()),
+                connection: fl_core::ConnectionKind::Usb,
+                state: fl_core::DeviceState::Online,
+                ip: None,
+                android_version: None,
+                battery: None,
+                platform,
+            })))
+            .await
+            .ok();
+    }
+
     let final_target = if let (Some(usb), false) = (usb_serial_to_pair.as_deref(), no_wifi) {
         match pre_pair_wifi(runner.as_ref(), usb, 5555).await {
             Ok(t) => {
@@ -170,6 +199,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                                 isolate_slot.clone(),
                                 event_tx_logs.clone(),
                                 short_for_logs.clone(),
+                                serial_for_state.clone(),
                             );
                         }
                         ev
@@ -325,14 +355,20 @@ fn connect_vm_service(
     isolate_slot: Arc<Mutex<Option<String>>>,
     event_tx: mpsc::Sender<AppEvent>,
     short_name: String,
+    serial: String,
 ) {
     tokio::spawn(async move {
         let (vm_tx, mut vm_rx) = mpsc::channel::<fl_core::VmEvent>(128);
-        // Bridge VmEvents → AppEvent::Vm.
+        // Bridge VmEvents → AppEvent::Vm, tagging each with the device
+        // serial so the TUI can keep per-device perf samples.
         let event_tx_bridge = event_tx.clone();
+        let serial_for_bridge = serial.clone();
         tokio::spawn(async move {
             while let Some(ev) = vm_rx.recv().await {
-                event_tx_bridge.send(AppEvent::Vm(ev)).await.ok();
+                event_tx_bridge
+                    .send(AppEvent::Vm { serial: serial_for_bridge.clone(), event: ev })
+                    .await
+                    .ok();
             }
         });
 
@@ -379,6 +415,7 @@ fn connect_vm_service(
             // 0 MB.
             let mem_client = client.clone();
             let mem_tx = event_tx.clone();
+            let mem_serial = serial.clone();
             tokio::spawn(async move {
                 let mut ticker =
                     tokio::time::interval(std::time::Duration::from_secs(1));
@@ -400,10 +437,13 @@ fn connect_vm_service(
                         Ok((used, total)) => {
                             consecutive_failures = 0;
                             if mem_tx
-                                .send(AppEvent::Vm(fl_core::VmEvent::GcStats {
-                                    used_mb: used,
-                                    total_mb: total,
-                                }))
+                                .send(AppEvent::Vm {
+                                    serial: mem_serial.clone(),
+                                    event: fl_core::VmEvent::GcStats {
+                                        used_mb: used,
+                                        total_mb: total,
+                                    },
+                                })
                                 .await
                                 .is_err()
                             {
@@ -959,8 +999,8 @@ fn print_event_pretty(ev: &AppEvent, elapsed: std::time::Duration) {
         AppEvent::Device(d) => {
             format!("\x1b[90m{ts}\x1b[0m \x1b[1;35mDEV  \x1b[0m {d:?}")
         }
-        AppEvent::Vm(v) => {
-            format!("\x1b[90m{ts}\x1b[0m \x1b[1;34mVM   \x1b[0m {v:?}")
+        AppEvent::Vm { serial, event } => {
+            format!("\x1b[90m{ts}\x1b[0m \x1b[1;34mVM   \x1b[0m [{serial}] {event:?}")
         }
         AppEvent::Key(_) | AppEvent::Tick => return,
     };

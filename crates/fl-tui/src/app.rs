@@ -30,6 +30,19 @@ pub struct LogLine {
     pub message: String,
 }
 
+/// Per-device performance state. One instance per active device serial
+/// (see `AppState::device_perf`). Mirrors the global perf fields on
+/// `AppState` but isolated, so the multi-device performance panel can
+/// show each device's own FPS / memory trace.
+#[derive(Debug, Default, Clone)]
+pub struct DevicePerf {
+    pub fps_samples: VecDeque<f32>,
+    pub mem_samples: VecDeque<f32>,
+    pub frame_ui_ms: f32,
+    pub frame_raster_ms: f32,
+    pub heap_capacity_mb: f32,
+}
+
 #[derive(Debug)]
 pub struct AppState {
     pub app_name: String,
@@ -44,6 +57,12 @@ pub struct AppState {
     /// Last reported heap capacity in MB (from `getIsolateMemoryUsage`).
     /// Lets the panel show `used / capacity` instead of just `used`.
     pub heap_capacity_mb: f32,
+    /// Per-device perf buffers, keyed by device serial. Populated by
+    /// `AppEvent::Vm { serial, .. }` so the Performance panel can render
+    /// one block of stats per running device. The global `fps_samples`,
+    /// `mem_samples`, `frame_ui_ms`, etc. above remain as the "merged"
+    /// view used by the single-device summary and by older tests.
+    pub device_perf: std::collections::HashMap<String, DevicePerf>,
     /// Sliding window of Flutter.Frame event timestamps used to derive
     /// the *actual* frames-per-second the device is producing, separate
     /// from the per-frame `fps` computed off frame duration.
@@ -130,6 +149,7 @@ impl AppState {
             frame_raster_ms: 0.0,
             mem_samples: VecDeque::with_capacity(MEM_RING),
             heap_capacity_mb: 0.0,
+            device_perf: std::collections::HashMap::new(),
             frame_timestamps: VecDeque::with_capacity(240),
             total_frames: 0,
             rebuilds_per_sec: 0,
@@ -190,7 +210,7 @@ impl AppState {
         match ev {
             AppEvent::Device(d) => self.apply_device(d),
             AppEvent::Flutter(f) => self.apply_flutter(f),
-            AppEvent::Vm(v) => self.apply_vm(v),
+            AppEvent::Vm { serial, event } => self.apply_vm(&serial, event),
             AppEvent::Key(_) | AppEvent::Tick => {}
         }
         self.expire_banner();
@@ -203,7 +223,16 @@ impl AppState {
                     sess.state = fl_core::DeviceSessionState::Ready;
                     sess.ip = d.ip.clone();
                     sess.connection = d.connection;
-                    sess.display_name = d.name.clone();
+                    // The `host:track-devices` payload only carries the
+                    // serial — `track_devices` therefore emits Discovered
+                    // events with `name == serial`. If we let that
+                    // overwrite a properly-resolved display name (e.g.
+                    // "SM A145R" from `getprop ro.product.model`), the
+                    // panel falls back to showing the raw serial. Only
+                    // accept a name that actually adds information.
+                    if d.name != d.serial && !d.name.is_empty() {
+                        sess.display_name = d.name.clone();
+                    }
                     sess.platform = d.platform.clone();
                 }
             }
@@ -312,7 +341,7 @@ impl AppState {
         }
     }
 
-    fn apply_vm(&mut self, ev: VmEvent) {
+    fn apply_vm(&mut self, serial: &str, ev: VmEvent) {
         match ev {
             VmEvent::Connected => self.vm_connected = true,
             VmEvent::Disconnected => self.vm_connected = false,
@@ -324,6 +353,15 @@ impl AppState {
                 push_capped(&mut self.fps_samples, fps.clamp(0.0, 120.0), FPS_RING);
                 self.frame_ui_ms = ui_micros as f32 / 1000.0;
                 self.frame_raster_ms = raster_micros as f32 / 1000.0;
+                // Per-device sample so the multi-device panel can show
+                // one FPS sparkline per running device. Skip when the
+                // serial is empty (legacy / test events).
+                if !serial.is_empty() {
+                    let perf = self.device_perf.entry(serial.to_string()).or_default();
+                    push_capped(&mut perf.fps_samples, fps.clamp(0.0, 120.0), FPS_RING);
+                    perf.frame_ui_ms = ui_micros as f32 / 1000.0;
+                    perf.frame_raster_ms = raster_micros as f32 / 1000.0;
+                }
                 // Record event arrival for actual frames/s. Trim anything
                 // older than 2 s so the deque stays bounded even at 120 Hz.
                 self.total_frames = self.total_frames.saturating_add(1);
@@ -340,6 +378,11 @@ impl AppState {
             VmEvent::GcStats { used_mb, total_mb } => {
                 push_capped(&mut self.mem_samples, used_mb as f32, MEM_RING);
                 self.heap_capacity_mb = total_mb as f32;
+                if !serial.is_empty() {
+                    let perf = self.device_perf.entry(serial.to_string()).or_default();
+                    push_capped(&mut perf.mem_samples, used_mb as f32, MEM_RING);
+                    perf.heap_capacity_mb = total_mb as f32;
+                }
             }
             VmEvent::IsolateEvent(_) | VmEvent::ExtensionResult { .. } => {}
         }
@@ -847,7 +890,7 @@ mod tests {
     #[test]
     fn frame_timing_pushes_fps_sample() {
         let mut s = AppState::new("app".into(), "debug".into());
-        s.apply(AppEvent::Vm(VmEvent::FrameTiming { ui_micros: 5_000, raster_micros: 11_000 }));
+        s.apply(AppEvent::Vm { serial: String::new(), event: VmEvent::FrameTiming { ui_micros: 5_000, raster_micros: 11_000 } });
         assert_eq!(s.fps_samples.len(), 1);
         let fps = *s.fps_samples.front().unwrap();
         assert!((fps - 62.5).abs() < 0.5);

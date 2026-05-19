@@ -1,5 +1,6 @@
 ---
 source: crates/fl-tui/src/render.rs
+assertion_line: 466
 expression: dump
 ---
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐
@@ -10,7 +11,7 @@ expression: dump
 │Frame  ui  0.0ms  raster  0.0ms  jank   0%                ││                                      │
 │Memory                                                 0MB││                                      │
 │Avg   0.0fps  rate   0/s  peak  0.0                       ││                                      │
-│Frames 0 since start                                      ││                                      │
+│                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │
 │                                                          ││                                      │

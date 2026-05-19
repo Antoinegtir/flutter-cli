@@ -210,6 +210,15 @@ pub struct TuiRunner {
     /// to detect filter changes during the event loop so we can clear
     /// and repaint the scrollback region with only matching lines.
     last_filter: Option<String>,
+    /// Requested inline viewport height (Inline mode only). Stored so
+    /// terminal-resize events can recompute the viewport Rect against
+    /// the new (cols, rows) instead of keeping the frozen startup one.
+    inline_height: u16,
+    /// `true` when this Inline session was started via the `_with_banner`
+    /// variant. On resize we re-render the banner at the new terminal
+    /// width so the box doesn't end up half-erased or with the wrong
+    /// border length when the user shrinks/grows the window.
+    show_banner: bool,
 }
 
 impl TuiRunner {
@@ -239,7 +248,13 @@ impl TuiRunner {
         stdout.flush()?;
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::new(backend).context("creating ratatui terminal")?;
-        Ok(Self { terminal, mode: ViewportMode::Fullscreen, last_filter: None })
+        Ok(Self {
+            terminal,
+            mode: ViewportMode::Fullscreen,
+            last_filter: None,
+            inline_height: 0,
+            show_banner: false,
+        })
     }
 
     /// Initialize an *inline* viewport — a ratatui box pinned to the
@@ -367,7 +382,13 @@ impl TuiRunner {
             TerminalOptions { viewport: Viewport::Fixed(area) },
         )
         .context("creating fixed-viewport ratatui terminal")?;
-        Ok(Self { terminal, mode: ViewportMode::Inline, last_filter: None })
+        Ok(Self {
+            terminal,
+            mode: ViewportMode::Inline,
+            last_filter: None,
+            inline_height: effective_height,
+            show_banner,
+        })
     }
 
     /// Print a single line of content into the scrollback ABOVE the
@@ -525,14 +546,33 @@ impl TuiRunner {
         if rows_above == 0 {
             return Ok(());
         }
-        let cols = viewport_area.width as usize;
+        let cols_u16 = viewport_area.width;
+        let cols = cols_u16 as usize;
         let filter = state.log_filter.as_deref();
 
-        // Most-recent matching N lines (N = rows_above). Walk from
-        // the end of state.logs so we get the tail, then reverse so
-        // the order back to oldest-first (top of region) → newest
-        // (bottom of region, just above viewport).
-        let n_rows = rows_above as usize;
+        // Banner sits at the very top of the band when this is an
+        // `fl run`-style inline UI. We need to know how many rows it
+        // takes so we can both paint logs BELOW it and skip those rows
+        // when erasing — otherwise every filter change / resize would
+        // wipe the banner and the "header" of `fl run` would vanish.
+        let banner_lines: Vec<String> = if self.show_banner && cols_u16 >= BANNER_MIN_WIDTH {
+            let lines = welcome_banner_lines(cols_u16);
+            if (lines.len() as u16) <= rows_above {
+                lines
+            } else {
+                Vec::new()
+            }
+        } else {
+            Vec::new()
+        };
+        let banner_h = banner_lines.len() as u16;
+
+        // Logs occupy the rows BELOW the banner, anchored to the bottom
+        // of the band (just above the viewport).
+        let log_band_top = banner_h + 1; // 1-indexed
+        let log_rows = rows_above.saturating_sub(banner_h);
+
+        let n_rows = log_rows as usize;
         let mut tail: Vec<&LogLine> = state
             .logs
             .iter()
@@ -543,21 +583,18 @@ impl TuiRunner {
         tail.reverse();
 
         let backend = self.terminal.backend_mut();
-        // Save the cursor so ratatui's next draw resumes from where
-        // it was. We do NOT use the scroll-region + `ESC[J` trick
-        // here — `ED 0` (erase from cursor to end of screen)
-        // ignores DECSTBM in every terminal we've tested (iTerm2,
-        // Terminal.app, Warp), and clears the viewport along with
-        // the scrollback band. Instead we walk each row in the band
-        // explicitly: `ESC[<row>;1H` to position, `ESC[2K` to erase
-        // just that line, then write the content (if any). The
-        // viewport rows are never touched.
         write!(backend, "\x1b7")?;
 
+        // Banner first — top of the band. Paint each line at its
+        // absolute row so cursor scroll behavior at the bottom doesn't
+        // shift anything.
+        for (i, line) in banner_lines.iter().enumerate() {
+            let row = (i as u16) + 1;
+            write!(backend, "\x1b[{row};1H\x1b[2K{line}")?;
+        }
+
+        // Then the log tail — clears each log row before writing.
         let tail_len = tail.len();
-        // Index in `tail` of the log that should land on absolute
-        // row `r` (1-indexed). The newest matching log goes on row
-        // `rows_above`, the next-newest on `rows_above - 1`, etc.
         let log_at_row = |r: u16| -> Option<&LogLine> {
             let from_bottom = (rows_above - r) as usize;
             if from_bottom >= tail_len {
@@ -566,8 +603,7 @@ impl TuiRunner {
                 Some(tail[tail_len - 1 - from_bottom])
             }
         };
-
-        for row in 1..=rows_above {
+        for row in log_band_top..=rows_above {
             write!(backend, "\x1b[{row};1H\x1b[2K")?;
             if let Some(line) = log_at_row(row) {
                 let (prefix, color) = log_style(line.level, theme);
@@ -583,6 +619,54 @@ impl TuiRunner {
 
         write!(backend, "\x1b8")?;
         backend.flush()?;
+        Ok(())
+    }
+
+    /// React to a terminal resize: recompute the viewport Rect against
+    /// the new (cols, rows), wipe the screen so no stale glyphs remain
+    /// where the old box used to sit, and re-emit the welcome banner at
+    /// the new width when applicable. The next `terminal.draw()` call
+    /// then repaints the dashboard into the new area; `repaint_scrollback`
+    /// (called by the run loop after this) refills the band above the
+    /// viewport with the log tail at the current width.
+    ///
+    /// Without this, a `Viewport::Fixed` inline UI stays drawn at the
+    /// old coordinates after a resize — visible as ghost borders, a
+    /// dashboard floating at the wrong y-offset, or a banner whose
+    /// horizontal rules suddenly don't reach the new edge.
+    fn handle_resize(&mut self, cols: u16, rows: u16) -> anyhow::Result<()> {
+        use ratatui::layout::Rect;
+        let new_area = match self.mode {
+            ViewportMode::Fullscreen => Rect::new(0, 0, cols, rows),
+            ViewportMode::Inline => {
+                let h = self
+                    .inline_height
+                    .min(rows.saturating_sub(2))
+                    .max(8)
+                    .min(rows.max(1));
+                Rect::new(0, rows.saturating_sub(h), cols, h)
+            }
+        };
+        // Step 1: wipe the entire visible screen. `terminal.resize()`
+        // and `terminal.clear()` only erase the viewport rows for
+        // `Viewport::Fixed`, so any old content outside the new
+        // viewport (banner, logs, the previous viewport rectangle if
+        // it moved) would otherwise persist.
+        {
+            let backend = self.terminal.backend_mut();
+            write!(backend, "\x1b[2J\x1b[H")?;
+            backend.flush()?;
+        }
+        // Step 2: tell ratatui about the new geometry and invalidate
+        // its known-state buffer so the next draw repaints every cell
+        // (the diff would otherwise skip cells whose new value matches
+        // the stale cached value).
+        self.terminal.resize(new_area)?;
+        self.terminal.clear()?;
+        // The band above the viewport (banner + logs) is repainted by
+        // the run loop's call to `repaint_scrollback` immediately after
+        // this — it handles both banner and log placement so the order
+        // is guaranteed and they don't fight over the same rows.
         Ok(())
     }
 
@@ -612,7 +696,28 @@ impl TuiRunner {
                     })?;
                 }
                 Some(Ok(term_ev)) = events.next() => {
-                    if let Some(k) = map_key(term_ev) {
+                    if let Event::Resize(mut cols, mut rows) = term_ev {
+                        // Dragging a terminal edge fires a Resize per
+                        // pixel/step — sometimes dozens per second.
+                        // Debounce by collapsing consecutive Resize
+                        // events ready RIGHT NOW (non-blocking peek)
+                        // down to the last one. We stop draining the
+                        // moment a non-Resize event shows up so it
+                        // isn't dropped — the next select iteration
+                        // will pick it up via `events.next()` again.
+                        use futures_util::future::FutureExt;
+                        while let Some(Some(Ok(Event::Resize(c, r)))) =
+                            events.next().now_or_never()
+                        {
+                            cols = c;
+                            rows = r;
+                        }
+                        let _ = self.handle_resize(cols, rows);
+                        // Wipe + redraw left the scrollback band empty.
+                        // Refill it from state.logs so history isn't
+                        // lost every time the user nudges the edge.
+                        let _ = self.repaint_scrollback(state, &theme);
+                    } else if let Some(k) = map_key(term_ev) {
                         // Apply locally first (handles q/v/r/R/c and
                         // also filter-mode keys, which mutate
                         // state.log_filter).
@@ -678,7 +783,16 @@ impl TuiRunner {
                     last_draw = now;
                 }
                 Some(Ok(term_ev)) = events.next() => {
-                    if let Some(k) = crate::runner::map_key(term_ev) {
+                    if let crossterm::event::Event::Resize(mut cols, mut rows) = term_ev {
+                        use futures_util::future::FutureExt;
+                        while let Some(Some(Ok(crossterm::event::Event::Resize(c, r)))) =
+                            events.next().now_or_never()
+                        {
+                            cols = c;
+                            rows = r;
+                        }
+                        let _ = self.handle_resize(cols, rows);
+                    } else if let Some(k) = crate::runner::map_key(term_ev) {
                         if let Some(input) = view.handle_key(k) {
                             view.apply(input);
                         }

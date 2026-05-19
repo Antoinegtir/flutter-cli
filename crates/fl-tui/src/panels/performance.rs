@@ -46,9 +46,113 @@ pub fn render_performance(area: Rect, buf: &mut Buffer, state: &AppState, theme:
 
     let n = state.active_sessions.len();
     if n <= 1 {
+        // 0 or 1 device: use the global perf state (preserves existing
+        // single-device layout and keeps headless / pre-pair-VM cases
+        // looking like before).
         render_single(inner, buf, state, theme);
     } else {
-        render_summary(inner, buf, state, theme, n);
+        render_per_device(inner, buf, state, theme);
+    }
+}
+
+/// Multi-device: stack one compact 3-row block per active device, with
+/// a 1-row separator label showing the device name. Each block reuses
+/// the device's own `DevicePerf` so the sparklines are real per-device
+/// traces and not a confusing merged view.
+fn render_per_device(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    let sessions = &state.active_sessions;
+    let n = sessions.len() as u16;
+    if n == 0 || inner.height == 0 {
+        return;
+    }
+    // Each device takes 3 rows: name header + FPS line + Memory line.
+    // If there aren't enough rows for everyone, devices share what's
+    // available evenly (minimum 2 rows each); the renderer below
+    // gracefully drops the memory line if it only gets 2 rows.
+    let per_dev_h = (inner.height / n).max(2);
+    let mut y = inner.y;
+    for (i, sess) in sessions.iter().enumerate() {
+        if y >= inner.y + inner.height {
+            break;
+        }
+        let h = if i + 1 == sessions.len() {
+            (inner.y + inner.height).saturating_sub(y)
+        } else {
+            per_dev_h.min((inner.y + inner.height).saturating_sub(y))
+        };
+        let cell = Rect { x: inner.x, y, width: inner.width, height: h };
+        render_one_device(cell, buf, state, sess, theme);
+        y = y.saturating_add(h);
+    }
+}
+
+fn render_one_device(
+    cell: Rect,
+    buf: &mut Buffer,
+    state: &AppState,
+    sess: &fl_core::DeviceSessionSummary,
+    theme: &Theme,
+) {
+    let perf = state.device_perf.get(&sess.serial);
+    let fps_samples = perf.map(|p| &p.fps_samples);
+    let mem_samples = perf.map(|p| &p.mem_samples);
+    let cap = perf.map(|p| p.heap_capacity_mb).unwrap_or(0.0);
+    let cur_fps = fps_samples
+        .and_then(|s| s.back().copied())
+        .unwrap_or(0.0);
+    let cur_mem = mem_samples
+        .and_then(|s| s.back().copied())
+        .unwrap_or(0.0);
+
+    let w = cell.width as usize;
+
+    // Row 1: device name (so the user can tell which block is which).
+    let name = format!("· {}", sess.display_name);
+    Paragraph::new(Line::styled(name, theme.dimmed())).render(
+        Rect { x: cell.x, y: cell.y, width: cell.width, height: 1 },
+        buf,
+    );
+
+    // Row 2: FPS sparkline + current value.
+    if cell.height >= 2 {
+        let empty = std::collections::VecDeque::<f32>::new();
+        let samples = fps_samples.unwrap_or(&empty);
+        let spark = sparkline(samples, 60.0, w.saturating_sub(13));
+        Paragraph::new(Line::styled(
+            format!("FPS    {spark} {cur_fps:>5.1}"),
+            Style::default().fg(fps_color(cur_fps, theme)).bg(theme.bg),
+        ))
+        .render(
+            Rect { x: cell.x, y: cell.y + 1, width: cell.width, height: 1 },
+            buf,
+        );
+    }
+
+    // Row 3: memory sparkline + used/total.
+    if cell.height >= 3 {
+        let mem_max = mem_samples
+            .map(|s| s.iter().copied().fold(cap.max(64.0), f32::max))
+            .unwrap_or(64.0);
+        let mem_label = if cap > 0.0 {
+            format!("{cur_mem:>4.0}/{cap:>4.0}MB")
+        } else {
+            format!("{cur_mem:>4.0}MB")
+        };
+        let empty = std::collections::VecDeque::<f32>::new();
+        let samples = mem_samples.unwrap_or(&empty);
+        let spark = sparkline(
+            samples,
+            mem_max,
+            w.saturating_sub(8 + mem_label.chars().count()),
+        );
+        Paragraph::new(Line::styled(
+            format!("Memory {spark} {mem_label}"),
+            theme.base(),
+        ))
+        .render(
+            Rect { x: cell.x, y: cell.y + 2, width: cell.width, height: 1 },
+            buf,
+        );
     }
 }
 
@@ -56,7 +160,6 @@ fn render_single(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme)
     let layout = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
             Constraint::Length(1),
@@ -133,29 +236,8 @@ fn render_single(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme)
         format!("Avg {avg_fps:>4.1}  rate {real_fps:>3.0}/s")
     };
     Paragraph::new(Line::styled(avg_line, theme.dimmed())).render(layout[3], buf);
-
-    // Line 5 — cumulative frame count, a steady signal you can stopwatch.
-    Paragraph::new(Line::styled(
-        format!("Frames {} since start", state.total_frames),
-        theme.dimmed(),
-    ))
-    .render(layout[4], buf);
 }
 
-fn render_summary(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme, n: usize) {
-    let cur_fps = state.fps_samples.back().copied().unwrap_or(0.0);
-    let spark_fps = sparkline(&state.fps_samples, 60.0, 8);
-    let line1 = Line::styled(
-        format!("FPS avg {spark_fps} {cur_fps:>4.1}  ·  {n} devices online"),
-        Style::default().fg(fps_color(cur_fps, theme)).bg(theme.bg),
-    );
-    let cur_mem = state.mem_samples.back().copied().unwrap_or(0.0);
-    let line2 = Line::styled(
-        format!("Mem ~{cur_mem:.0}MB total"),
-        theme.dimmed(),
-    );
-    Paragraph::new(vec![line1, line2]).render(inner, buf);
-}
 
 #[cfg(test)]
 mod tests {
@@ -181,29 +263,36 @@ mod tests {
     }
 
     #[test]
-    fn renders_summary_when_two_or_more_sessions() {
-        use crate::app::AppState;
+    fn renders_one_block_per_session_with_two_or_more_devices() {
+        use crate::app::{AppState, DevicePerf};
         use fl_core::{AppEvent, DeviceEvent, DeviceSessionState};
 
         let mut s = AppState::new("a".into(), "d".into());
-        for serial in ["a", "b", "c"] {
+        for serial in ["alpha", "beta", "gamma"] {
             s.apply(AppEvent::Device(DeviceEvent::SessionState {
                 serial: serial.into(),
                 state: DeviceSessionState::Ready,
             }));
+            // Seed per-device perf so the rendered block has live data.
+            let mut p = DevicePerf::default();
+            p.fps_samples.push_back(30.0);
+            p.mem_samples.push_back(128.0);
+            s.device_perf.insert(serial.into(), p);
         }
-        // Add some sample data so sparkline has content
-        s.fps_samples.push_back(30.0);
-        s.fps_samples.push_back(35.0);
-        s.mem_samples.push_back(128.0);
-
-        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 5));
-        render_performance(Rect::new(0, 0, 80, 5), &mut buf, &s, &Theme::TOKYO_NIGHT);
+        // Tall enough for 3 blocks × 3 rows each.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 80, 12));
+        render_performance(Rect::new(0, 0, 80, 12), &mut buf, &s, &Theme::TOKYO_NIGHT);
         let mut text = String::new();
         for y in 0..buf.area.height {
             for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
             text.push('\n');
         }
-        assert!(text.contains("3 devices"), "missing summary count:\n{text}");
+        // Each device's name header should appear once.
+        assert!(text.contains("alpha"), "missing alpha block:\n{text}");
+        assert!(text.contains("beta"), "missing beta block:\n{text}");
+        assert!(text.contains("gamma"), "missing gamma block:\n{text}");
+        // And the FPS/Memory rows should be present (at least once each).
+        assert!(text.contains("FPS"), "missing FPS row:\n{text}");
+        assert!(text.contains("Memory"), "missing Memory row:\n{text}");
     }
 }
