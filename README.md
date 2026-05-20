@@ -254,6 +254,29 @@ Or skip the shim entirely and call `flutter-cli run` / `test` / `build` directly
 
 ---
 
+## Docker
+
+A `Dockerfile` (multi-stage, Debian slim runtime, non-root user) ships in the repo for CI runners and locked-down dev VMs.
+
+```sh
+# build the image
+docker build -t flutter-cli:dev .
+
+# sanity check
+docker run --rm -it flutter-cli:dev --help
+
+# run against your local Flutter project + SDK (Linux/macOS host)
+docker run --rm -it \
+  -v "$PWD":/work -w /work \
+  -v "$FLUTTER_ROOT":/opt/flutter:ro \
+  -e PATH=/opt/flutter/bin:/usr/local/bin:/usr/bin:/bin \
+  flutter-cli:dev run --basic
+```
+
+The image **does not** bundle the Flutter SDK — it's huge, version-sensitive, and you almost certainly already have one. Mount yours at `/opt/flutter` and put it on `PATH`. Android USB devices need `--device /dev/bus/usb` and appropriate udev rules on the host. iOS device interaction stays macOS-only (needs `xcrun`).
+
+---
+
 ## Roadmap
 
 - **Wi-Fi takeover on USB unplug** (Android — already pre-pairs; iOS work-in-progress).

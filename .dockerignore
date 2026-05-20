@@ -1,0 +1,47 @@
+# Keep the build context small — anything not needed to compile the
+# binary is excluded so `docker build` doesn't ship gigabytes of
+# unrelated stuff into the daemon.
+
+# Build artefacts (cargo target/, IDE caches).
+target/
+**/target/
+**/*.rlib
+**/*.rmeta
+**/*.d
+**/*.pdb
+
+# Editor / OS noise.
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.swo
+
+# Git metadata — rebuilding history isn't useful inside the image.
+.git/
+.gitignore
+.gitattributes
+
+# Docs and screenshots — kept on the host, not in the image.
+docs/
+screenshots/
+*.gif
+*.png
+*.jpg
+
+# CI / repo metadata.
+.github/
+
+# Local install / dev scripts that pollute the build context.
+install.sh
+uninstall.sh
+node_modules/
+
+# Test artefacts and fixtures (shell scripts that wouldn't be runnable
+# in the builder image anyway).
+tests/fixtures/
+target/test-pubspec/
+
+# Tooling outputs.
+*.log
+*.tmp
