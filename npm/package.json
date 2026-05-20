@@ -1,5 +1,5 @@
 {
-  "name": "flutter-cli",
+  "name": "@antoinegtir/flutter-cli",
   "version": "0.1.0",
   "description": "Modern terminal UI for Flutter — hot reload across N devices, live HTTP/perf inspector, drops into your shell so 'flutter run' becomes the dashboard.",
   "keywords": [

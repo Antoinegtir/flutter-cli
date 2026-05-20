@@ -6,10 +6,10 @@ already has `node` installed) can install with a single command.
 
 ```sh
 # One-shot run, no install.
-npx flutter-cli run
+npx @antoinegtir/flutter-cli run
 
 # Global install (puts `flutter-cli` on your PATH).
-npm install -g flutter-cli
+npm install -g @antoinegtir/flutter-cli
 ```
 
 On install, a small postinstall script downloads the right
