@@ -16,7 +16,11 @@ const zlib = require('node:zlib');
 const { pipeline } = require('node:stream/promises');
 
 const pkg = require('./package.json');
-const VERSION = pkg.version;
+// We decouple the npm wrapper version from the binary version: the
+// wrapper can bump for README / packaging fixes without us having to
+// cut a fresh GitHub Release of the same binary. `binaryVersion` in
+// package.json wins; otherwise we fall back to pkg.version.
+const VERSION = pkg.binaryVersion || pkg.version;
 const REPO = 'Antoinegtir/flutter-cli';
 
 // Map { platform, arch } → release-asset suffix + archive format.
