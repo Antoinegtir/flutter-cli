@@ -78,7 +78,7 @@ jobs:
             archive_ext: "zip"
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
 
       - name: Install Rust toolchain
         shell: bash
@@ -134,7 +134,7 @@ jobs:
           echo "checksum=${archive}.sha256"    >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: flutter-cli-${{ matrix.target }}
           path: |
@@ -152,14 +152,14 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v6
         with:
           # Need full history so `gh release create --generate-notes`
           # can compute the diff against the previous tag.
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: artifacts
 
