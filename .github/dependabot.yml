@@ -1,0 +1,92 @@
+# Dependabot — keeps deps up to date without drowning the repo in PRs.
+#
+# Cadence is weekly (Monday morning UTC) and updates are grouped per
+# ecosystem so a single PR bumps many crates at once instead of N
+# separate PRs. Patch + minor are grouped; major bumps stay separate
+# so we read the changelog before merging them.
+#
+# The schedule is the same across ecosystems on purpose: one weekly
+# "deps" review session is more efficient than juggling four staggered
+# notification streams.
+
+version: 2
+
+updates:
+  # Rust workspace — all crates under crates/ are picked up because
+  # they share the root Cargo.lock.
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - rust
+    commit-message:
+      prefix: "deps(cargo)"
+      include: scope
+    groups:
+      cargo-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions used in .github/workflows/.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 5
+    labels:
+      - dependencies
+      - ci
+    commit-message:
+      prefix: "deps(actions)"
+      include: scope
+    groups:
+      actions-all:
+        patterns:
+          - "*"
+
+  # npm wrapper — has only stdlib deps today but covers future ones.
+  - package-ecosystem: npm
+    directory: "/npm"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - npm
+    commit-message:
+      prefix: "deps(npm)"
+      include: scope
+    groups:
+      npm-minor-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # Dockerfile base image (debian:bookworm-slim, rust:1.82-bookworm).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - docker
+    commit-message:
+      prefix: "deps(docker)"
+      include: scope
