@@ -49,9 +49,13 @@ jobs:
           # Apple Silicon Macs — the dominant Flutter-dev platform.
           - target: aarch64-apple-darwin
             runner: macos-14
-          # Intel Macs — still common in older corp setups.
+          # Intel Macs — still common in older corp setups. Cross-compiled
+          # from an Apple-Silicon runner because GitHub's macos-13 (Intel)
+          # runners are being retired and queue times are unreliable.
+          # rustc supports cross-target compilation between Apple targets
+          # natively, no extra linker setup needed.
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-14
           # x86_64 Linux — CI, dev VMs, GitHub Codespaces.
           - target: x86_64-unknown-linux-gnu
             runner: ubuntu-latest
