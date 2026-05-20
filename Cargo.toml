@@ -29,8 +29,8 @@ tokio-util = { version = "0.7", features = ["codec", "io"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-appender = "0.2"
-ratatui = "0.26"
-crossterm = { version = "0.27", features = ["event-stream"] }
+ratatui = "0.29"
+crossterm = { version = "0.28", features = ["event-stream"] }
 clap = { version = "4.5", features = ["derive"] }
 tokio-tungstenite = "0.21"
 futures-util = "0.3"
