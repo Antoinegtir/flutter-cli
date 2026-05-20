@@ -41,14 +41,23 @@ pub fn platform_icon(platform: &str) -> &'static str {
     }
 }
 
-fn lines_for(session: &DeviceSessionSummary, theme: &Theme) -> Vec<Line<'static>> {
+/// Braille-pattern spinner frames. Pre-baked here (rather than
+/// imported from `crate::spinner`) so we can pick the right frame
+/// from a wall-clock tick without depending on any shared mutable
+/// counter — keeps `lines_for` pure.
+const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+fn lines_for(session: &DeviceSessionSummary, theme: &Theme, spinner_frame: char) -> Vec<Line<'static>> {
     // The coloured bullet alone communicates the state (green dot =
     // ready, spinner = reloading, etc.) so we drop the textual
-    // "ready" / "connecting" label at the end of the row.
+    // "ready" / "connecting" label at the end of the row. For the
+    // in-progress states (Connecting, Reloading) we feed in a
+    // live-rotating Braille spinner so the user sees the build is
+    // actually moving instead of a frozen glyph.
     let (bullet, bullet_color) = match session.state {
         DeviceSessionState::Ready => ('●', theme.success),
-        DeviceSessionState::Reloading => ('⠹', theme.warn),
-        DeviceSessionState::Connecting => ('⠋', theme.warn),
+        DeviceSessionState::Reloading => (spinner_frame, theme.warn),
+        DeviceSessionState::Connecting => (spinner_frame, theme.warn),
         DeviceSessionState::Stopped => ('○', theme.dim),
         DeviceSessionState::Failed => ('✗', theme.error),
     };
@@ -88,12 +97,21 @@ pub fn render_devices(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     let inner = block.inner(area);
     block.render(area, buf);
 
+    // Pick the current spinner frame from wall-clock elapsed —
+    // advances by one frame every 80 ms, the same cadence as the
+    // standalone `Spinner` widget. We compute it ONCE per render
+    // so every in-progress device pulses in unison, not out-of-
+    // phase noise.
+    let frame_idx =
+        (state.started_at.elapsed().as_millis() / 80) as usize % SPINNER_FRAMES.len();
+    let spinner_frame = SPINNER_FRAMES[frame_idx];
+
     let mut lines: Vec<Line> = Vec::new();
     if state.active_sessions.is_empty() {
         lines.push(Line::styled("(aucun)".to_string(), theme.dimmed()));
     } else {
         for sess in &state.active_sessions {
-            lines.extend(lines_for(sess, theme));
+            lines.extend(lines_for(sess, theme, spinner_frame));
         }
     }
     // Persistent reconnecting indicator (sub-project A).

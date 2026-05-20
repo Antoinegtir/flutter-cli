@@ -279,7 +279,18 @@ impl AppState {
         match ev {
             DeviceEvent::Discovered(d) => {
                 if let Some(sess) = self.active_sessions.iter_mut().find(|s| s.serial == d.serial) {
-                    sess.state = fl_core::DeviceSessionState::Ready;
+                    // "Discovered" means adb / devicectl sees the
+                    // device physically attached — NOT that the
+                    // Flutter app has started on it. Only fl-cli's
+                    // `AppStarted` handler in multi.rs sends
+                    // `SessionState::Ready`, which is the real
+                    // signal we want. Leaving state alone here
+                    // prevents the dashboard from prematurely
+                    // marking an iPhone as Ready (and freezing the
+                    // chronometer on ✓) while its Xcode build is
+                    // still in progress. We still pick up metadata
+                    // (IP, connection kind, name, platform) — those
+                    // are independent of whether the app is live.
                     sess.ip = d.ip.clone();
                     sess.connection = d.connection;
                     // The `host:track-devices` payload only carries the
@@ -365,6 +376,27 @@ impl AppState {
                         &format!("[{short}] device disconnected — press q to exit"),
                     );
                 }
+                // Freeze the chronometer on green (✓) only when EVERY
+                // active session has reached `Ready`. On a single-
+                // device run that's the moment the first AppStarted
+                // fires; on multi-device it waits for the slowest
+                // device's build to finish. Without this guard the
+                // header would show ✓ as soon as the fastest device
+                // booted while iPhone (slower) was still compiling.
+                let all_ready = !self.active_sessions.is_empty()
+                    && self
+                        .active_sessions
+                        .iter()
+                        .all(|s| matches!(s.state, fl_core::DeviceSessionState::Ready));
+                if all_ready && self.compile_finished.is_none() {
+                    self.compile_finished = Some(self.started_at.elapsed());
+                    let label = if self.active_sessions.len() == 1 {
+                        "App started — build done"
+                    } else {
+                        "All devices compiled and launched"
+                    };
+                    self.show_banner(BannerKind::Success, label);
+                }
             }
             DeviceEvent::HttpRequest { device, method, url, status, duration_ms } => {
                 // Append to the rolling buffer the Network panel
@@ -396,10 +428,12 @@ impl AppState {
             FlutterEvent::DaemonReady => self.push_log(LogLevel::Debug, "daemon ready".into()),
             FlutterEvent::AppStarted { vm_service_uri, .. } => {
                 self.vm_service_uri = Some(vm_service_uri);
-                if self.compile_finished.is_none() {
-                    self.compile_finished = Some(self.started_at.elapsed());
-                    self.show_banner(BannerKind::Success, "App started — build done");
-                }
+                // The chronometer freezing on green (✓) is now
+                // driven by `apply_device(SessionState=Ready)` once
+                // *every* active session has reported Ready —
+                // otherwise on a multi-device run the timer would
+                // turn green the moment the first device finished,
+                // even though the others were still compiling.
             }
             FlutterEvent::Log { level, message } => self.push_log(level, message),
             FlutterEvent::Progress { message, finished, .. } => {
@@ -974,7 +1008,14 @@ mod tests {
     }
 
     #[test]
-    fn discovered_marks_session_ready() {
+    fn discovered_keeps_state_but_updates_metadata() {
+        // Discovered means the device is physically connected — it
+        // does NOT mean the Flutter app has started on it. The
+        // session state must NOT be promoted to Ready by a
+        // Discovered event; only `AppStarted` (which fl-cli
+        // translates into `SessionState::Ready`) should do that.
+        // Metadata fields (display_name, IP, platform, connection)
+        // are however allowed to update freely.
         let mut s = AppState::new("app".into(), "debug".into());
         s.apply(AppEvent::Device(DeviceEvent::SessionState {
             serial: "ABC".into(),
@@ -991,7 +1032,11 @@ mod tests {
             battery: None,
             platform: None,
         })));
-        assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Ready);
+        assert_eq!(
+            s.active_sessions[0].state,
+            fl_core::DeviceSessionState::Connecting,
+            "Discovered must not promote a Connecting session to Ready"
+        );
         assert_eq!(s.active_sessions[0].display_name, "Pixel");
     }
 

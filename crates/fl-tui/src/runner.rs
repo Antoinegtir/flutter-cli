@@ -168,6 +168,23 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
 /// printing (`handle_event` → `print_above_viewport`) and the
 /// filter-driven full repaint (`repaint_scrollback`) so the two
 /// stay visually consistent.
+///
+/// Special-case: INFO lines whose message starts with the "✓" tick
+/// or the rocket emoji are upgraded to the theme's success colour,
+/// so build-complete / app-launched announcements pop against the
+/// stream of regular debug noise.
+fn log_style_for(level: fl_core::LogLevel, message: &str, theme: &Theme) -> (&'static str, ratatui::style::Color) {
+    // `contains` not `starts_with` so a multi-device prefix like
+    // `[iPhone Antoine] ` doesn't break the green-up — the marker
+    // can sit anywhere in the message body.
+    if matches!(level, fl_core::LogLevel::Info)
+        && (message.contains("✓ ") || message.contains("🚀 "))
+    {
+        return ("INFO  ", theme.success);
+    }
+    log_style(level, theme)
+}
+
 fn log_style(level: fl_core::LogLevel, theme: &Theme) -> (&'static str, ratatui::style::Color) {
     match level {
         fl_core::LogLevel::Error => ("ERROR ", theme.error),
@@ -352,18 +369,20 @@ impl TuiRunner {
             && cols >= BANNER_MIN_WIDTH
             && rows_above_viewport >= banner_h;
         if banner_fits {
+            // Paint banner glued just above the viewport. As logs
+            // flow in, the band scrolls up via DECSTBM and the
+            // banner naturally rolls toward the top, eventually off
+            // the screen entirely — giving logs the full vertical
+            // space.
             let banner_top_1idx = rows_above_viewport.saturating_sub(banner_h - 1);
-            // 1-indexed cursor positioning. `H` is "move cursor to
-            // (row;col)" — absolute and reliable across terminals.
             write!(stdout, "\x1b[{banner_top_1idx};1H")?;
             for (i, line) in banner.iter().enumerate() {
                 if i + 1 < banner.len() {
                     write!(stdout, "{line}\r\n")?;
                 } else {
-                    // Last line: no trailing CRLF, so we don't push
-                    // the cursor into the viewport's top row (which
-                    // would briefly show a stray cursor before the
-                    // first ratatui draw paints over it).
+                    // Last line: no trailing CRLF, avoids pushing
+                    // the cursor into a fresh row and leaving a
+                    // stray cursor before ratatui's first draw.
                     write!(stdout, "{line}")?;
                 }
             }
@@ -447,6 +466,12 @@ impl TuiRunner {
         // 6. Reset scroll region to the full screen.
         // 7. Restore cursor.
         write!(backend, "\x1b7")?;
+        // Scroll region = the full band above the viewport. Logs
+        // scroll the entire band including the banner rows, so the
+        // welcome banner gradually rolls off the top as the app
+        // produces output. This is the conscious trade-off: more
+        // vertical room for logs at the cost of the banner being
+        // ephemeral after the first dozen lines.
         write!(backend, "\x1b[1;{rows_above}r")?;
         write!(backend, "\x1b[{rows_above};1H")?;
         write!(backend, "\n")?;
@@ -510,7 +535,7 @@ impl TuiRunner {
                 // filter), it just doesn't get printed to the
                 // terminal scrollback.
                 if log_matches_filter(state.log_filter.as_deref(), *level, message) {
-                    let (prefix, color) = log_style(*level, theme);
+                    let (prefix, color) = log_style_for(*level, message, theme);
                     let _ = self.print_above_viewport(prefix, message, color);
                 }
             }
@@ -606,7 +631,7 @@ impl TuiRunner {
         for row in log_band_top..=rows_above {
             write!(backend, "\x1b[{row};1H\x1b[2K")?;
             if let Some(line) = log_at_row(row) {
-                let (prefix, color) = log_style(line.level, theme);
+                let (prefix, color) = log_style_for(line.level, &line.message, theme);
                 let sgr = match color {
                     ratatui::style::Color::Rgb(r, g, b) => format!("\x1b[38;2;{r};{g};{b}m"),
                     _ => String::new(),

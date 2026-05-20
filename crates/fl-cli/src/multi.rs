@@ -70,16 +70,25 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     // streams apart. Single-device sessions skip the prefix; it's
     // just noise when there's nothing to disambiguate.
     multi_device: bool,
+    // Pre-resolved human-readable name from the caller's device
+    // discovery (e.g. "iPhone Antoine", "sdk gphone64 arm64"). Used
+    // as-is when non-empty; we only fall back to the adb getprop
+    // probe / serial when the caller didn't have one.
+    discovered_name: Option<String>,
 ) -> anyhow::Result<DeviceSession> {
-    let display_name = match &usb_serial_to_pair {
-        Some(usb) => runner
+    let display_name = match (discovered_name.as_deref(), &usb_serial_to_pair) {
+        // Caller knew the device name already — use it directly.
+        (Some(n), _) if !n.is_empty() && n != serial_to_run => n.to_string(),
+        // Android USB path: ask the device for its marketing model.
+        (_, Some(usb)) => runner
             .run("adb", &["-s", usb, "shell", "getprop", "ro.product.model"])
             .await
             .ok()
             .map(|o| o.stdout.trim().to_string())
             .filter(|s| !s.is_empty())
             .unwrap_or_else(|| serial_to_run.clone()),
-        None => serial_to_run.clone(),
+        // Last-resort fallback: the raw serial.
+        _ => serial_to_run.clone(),
     };
     let session = DeviceSession::new(serial_to_run.clone(), display_name);
 
@@ -188,6 +197,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         String::new()
     };
     let serial_for_state = session.serial.clone();
+    let display_name_for_logs = session.display_name.clone();
     let event_tx_logs = event_tx.clone();
     let vm_client_slot = session.vm_client.clone();
     let isolate_slot = session.isolate_id.clone();
@@ -215,6 +225,13 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         // emulator-5554` (no such device) drops into the iOS USB
         // replug poll and waits forever.
         let mut ever_started = false;
+        // Track whether the "✓ compiled and launched" log has been
+        // emitted yet for this session. The Flutter daemon can fire
+        // `AppStarted` more than once over a session's lifetime
+        // (after a hot restart, after a VM Service re-attach, …),
+        // and we don't want a green ✓ line showing up every time
+        // — the build was already done.
+        let mut compiled_emitted = false;
         // Timestamps of consecutive daemon deaths. If 3+ happen
         // within 30s, we give up the respawn loop with a helpful
         // message — typically means the user's Flutter setup is
@@ -250,6 +267,24 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                             serial: serial_for_state.clone(),
                             state: DeviceSessionState::Ready,
                         })).await.ok();
+                        // Emit a green "✓ compiled" line ONCE per
+                        // session — `log_style_for` in fl-tui sees
+                        // the `✓` and upgrades the line to
+                        // `theme.success`. Subsequent `AppStarted`
+                        // events (hot restart, VM re-attach) are
+                        // ignored to avoid the doubled green line.
+                        if !compiled_emitted {
+                            compiled_emitted = true;
+                            let compiled_msg = if short_for_logs.is_empty() {
+                                format!("✓ {display_name_for_logs} compiled and launched")
+                            } else {
+                                format!("{short_for_logs}✓ compiled and launched")
+                            };
+                            event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+                                level: LogLevel::Info,
+                                message: compiled_msg,
+                            })).await.ok();
+                        }
                         if !app_id.is_empty() {
                             *app_id_slot.lock().await = Some(app_id.clone());
                         }
@@ -1458,6 +1493,24 @@ pub async fn run_multi(
         }
     };
 
+    // Pre-register EVERY chosen session in `Connecting` state up
+    // front, before we start spawning sessions sequentially. Without
+    // this, a fast device (e.g. Android already-installed app) can
+    // race past `AppStarted` before the next device's `spawn_session`
+    // has even sent its initial `SessionState::Connecting` — the TUI
+    // would then think "all sessions are Ready" with only one
+    // registered, freeze the chronometer on green ✓ prematurely, and
+    // show "All devices compiled" while iPhone is still building.
+    for serial in &chosen {
+        event_tx
+            .send(AppEvent::Device(DeviceEvent::SessionState {
+                serial: serial.clone(),
+                state: DeviceSessionState::Connecting,
+            }))
+            .await
+            .ok();
+    }
+
     let mut sessions: Vec<DeviceSession> = Vec::new();
     for serial in &chosen {
         // Pick the USB serial we should pre-pair for Wi-Fi takeover.
@@ -1481,14 +1534,25 @@ pub async fn run_multi(
         // "exclude non-attached devices" and the emulator gets
         // filtered out, surfacing as "No supported devices found
         // with name or id matching 'emulator-5554'".
-        let prefer_attached = all_devices
-            .iter()
-            .find(|d| d.serial == *serial)
+        let device_info = all_devices.iter().find(|d| d.serial == *serial);
+        let prefer_attached = device_info
             .map(|d| {
                 matches!(d.connection, fl_core::ConnectionKind::Usb)
                     && d.platform.as_deref() == Some("ios")
             })
             .unwrap_or(false);
+        // Pull the human-readable name from whichever discovery
+        // source had it (xcrun `deviceProperties.name` for iOS,
+        // `flutter devices --machine` for emulators, `model:` field
+        // from `adb devices -l` for Android USB). Falls back to the
+        // device's `model` if `name` is just the serial.
+        let discovered_name = device_info.map(|d| {
+            if d.name != d.serial && !d.name.is_empty() {
+                d.name.clone()
+            } else {
+                d.model.clone().unwrap_or_else(|| d.serial.clone())
+            }
+        });
         let s = spawn_session(
             runner.clone(),
             &flutter,
@@ -1502,6 +1566,7 @@ pub async fn run_multi(
             prefer_attached,
             extra.clone(),
             chosen.len() > 1,
+            discovered_name,
         )
         .await?;
         sessions.push(s);

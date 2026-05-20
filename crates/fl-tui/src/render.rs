@@ -9,9 +9,26 @@ use ratatui::style::Style;
 use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 
-const FOOTER_FULL: &str = " [r] reload  [R] restart  [b] theme  [p] paint  [P] perf  [o] platform  [s] snap 📸  [n] net  [d] devtools  [/] filter  [c] copy 📋  [q] quit ";
-const FOOTER_MEDIUM: &str = " [r] reload  [R] restart  [b] theme  [q] quit ";
 const FOOTER_SHORT: &str = " r reload · q quit ";
+
+/// All keybinds in priority order — first ones survive at the
+/// narrowest widths, last ones are dropped first. `render_footer`
+/// walks this list and packs as many entries as fit. Two-space gap
+/// between entries to match the previous fixed-tier spacing.
+const FOOTER_BINDS: &[&str] = &[
+    "[r] reload",
+    "[R] restart",
+    "[q] quit",
+    "[c] copy 📋",
+    "[/] filter",
+    "[s] snap 📸",
+    "[b] theme",
+    "[n] net",
+    "[d] devtools",
+    "[o] platform",
+    "[p] paint",
+    "[P] perf",
+];
 
 // Pre-ready variants: shown while the app is still compiling /
 // installing / waiting on VM Service. We omit r/R/b/p/P/o because
@@ -276,16 +293,41 @@ fn format_elapsed(d: std::time::Duration) -> String {
     }
 }
 
+/// Build the footer line for the available width by walking
+/// `FOOTER_BINDS` in priority order and stopping when the next
+/// entry would overflow. Returns an empty string when even the
+/// first entry doesn't fit (caller falls back to `FOOTER_SHORT`).
+fn pack_footer_binds(width: usize) -> String {
+    let mut out = String::from(" ");
+    // The trailing space mirrors the leading one so the line looks
+    // visually centred when there's slack on the right.
+    let trailing = 1;
+    for (i, bind) in FOOTER_BINDS.iter().enumerate() {
+        // Two spaces between entries, matching the previous tiers.
+        let extra = if i == 0 { bind.chars().count() } else { 2 + bind.chars().count() };
+        if out.chars().count() + extra + trailing > width {
+            break;
+        }
+        if i > 0 {
+            out.push_str("  ");
+        }
+        out.push_str(bind);
+    }
+    if out.chars().count() == 1 {
+        // Nothing fit — let the caller use FOOTER_SHORT.
+        return String::new();
+    }
+    out.push(' ');
+    out
+}
+
 fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
-    // Post-VM-Service: a flat dimmed line with all the action keys.
+    // Post-VM-Service: pack as many keybinds as the width allows,
+    // dropping low-priority ones first. Falls back to a compact
+    // single-line summary on very narrow terminals.
     if state.app_ready() {
-        let chosen = if area.width as usize >= FOOTER_FULL.chars().count() {
-            FOOTER_FULL
-        } else if area.width as usize >= FOOTER_MEDIUM.chars().count() {
-            FOOTER_MEDIUM
-        } else {
-            FOOTER_SHORT
-        };
+        let line = pack_footer_binds(area.width as usize);
+        let chosen = if line.is_empty() { FOOTER_SHORT.to_string() } else { line };
         Paragraph::new(Line::styled(chosen, theme.dimmed())).render(area, buf);
         return;
     }
@@ -451,16 +493,46 @@ mod tests {
 
     #[test]
     fn header_chrono_switches_to_checkmark_after_compile_finishes() {
+        // The chronometer flips from ⏱ to ✓ only when EVERY active
+        // session has reached `Ready`. Register a single session
+        // and flip it Ready — that's enough for the green checkmark.
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
         let mut state = AppState::new("my_app".into(), "debug".into());
-        state.apply(fl_core::AppEvent::Flutter(fl_core::FlutterEvent::AppStarted {
-            app_id: "x".into(),
-            vm_service_uri: "ws://x".into(),
+        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Ready,
         }));
         render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
         let text = dump(&buf);
-        assert!(text.contains('✓'), "expected checkmark after AppStarted, got:\n{text}");
+        assert!(text.contains('✓'), "expected checkmark after Ready, got:\n{text}");
         assert!(!text.contains('⏱'), "chrono running icon should be gone, got:\n{text}");
+    }
+
+    #[test]
+    fn header_chrono_stays_running_while_a_second_device_is_still_building() {
+        // Real multi-device flow: both sessions are registered
+        // (Connecting) at startup, then the fastest one flips to
+        // Ready. The chronometer must NOT flip to ✓ yet — there's
+        // still a second app compiling.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
+        let mut state = AppState::new("my_app".into(), "debug".into());
+        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Connecting,
+        }));
+        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
+            serial: "XYZ".into(),
+            state: fl_core::DeviceSessionState::Connecting,
+        }));
+        // First device finishes building.
+        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
+            serial: "ABC".into(),
+            state: fl_core::DeviceSessionState::Ready,
+        }));
+        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text = dump(&buf);
+        assert!(text.contains('⏱'), "chrono should still be running, got:\n{text}");
+        assert!(!text.contains('✓'), "no checkmark while a device builds, got:\n{text}");
     }
 
     #[test]

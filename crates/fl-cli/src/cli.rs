@@ -31,6 +31,11 @@ pub enum Cmd {
         /// Skip the dashboard and stream every event to stdout as plain text.
         /// Useful for debugging or when piping into another tool.
         #[arg(long, alias = "logs")] no_tui: bool,
+        /// Pure passthrough: exec the real `flutter run` with stdio
+        /// inherited. Same output as if you had typed `flutter run`
+        /// without `fl` in your path. No TUI, no `--machine`, no
+        /// JSON parsing — just Flutter's vanilla logs.
+        #[arg(long)] basic: bool,
         /// Build in release mode (mirrors `flutter run --release`).
         #[arg(long, conflicts_with_all = ["profile", "debug"])] release: bool,
         /// Build in profile mode (mirrors `flutter run --profile`).
@@ -55,6 +60,10 @@ pub enum Cmd {
         #[arg(long, conflicts_with_all = ["profile", "debug"])] release: bool,
         #[arg(long, conflicts_with = "debug")] profile: bool,
         #[arg(long)] debug: bool,
+        /// Skip the TUI dashboard and pass the build through with
+        /// vanilla `flutter build` stdio. Useful in CI, when piping
+        /// into another tool, or when the TUI itself is misbehaving.
+        #[arg(long)] basic: bool,
         #[arg(last = true, allow_hyphen_values = true)] extra: Vec<String>,
     },
     /// Run flutter test with a live TUI.
@@ -98,6 +107,10 @@ pub enum Cmd {
         #[arg(long)] reporter: Option<String>,
         /// Maximum number of test suites to run in parallel.
         #[arg(short = 'j', long)] concurrency: Option<u32>,
+        /// Skip the TUI test runner and stream raw `flutter test`
+        /// output. CI-friendly, pipe-friendly, and useful when the
+        /// TUI is masking an obscure tool error.
+        #[arg(long)] basic: bool,
         /// Test files or directories to run. Defaults to `test/` when
         /// omitted, matching `flutter test`'s default behaviour.
         paths: Vec<String>,
@@ -244,7 +257,7 @@ mod tests {
     fn parses_build_apk() {
         let c = Cli::parse_from(["fl", "build", "apk"]);
         match c.cmd {
-            Cmd::Build { target, release, profile, debug, .. } => {
+            Cmd::Build { target, release, profile, debug, basic: _, .. } => {
                 assert_eq!(target.as_deref(), Some("apk"));
                 // Default mode for `build` is release (unlike `run`).
                 assert_eq!(
