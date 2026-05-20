@@ -32,7 +32,7 @@ tracing-appender = "0.2"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
 clap = { version = "4.5", features = ["derive"] }
-tokio-tungstenite = "0.21"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 async-trait = "0.1"
 bytes = "1.5"
