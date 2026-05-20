@@ -7,7 +7,7 @@ Drops into your shell so `flutter run` *becomes* the dashboard. No new command t
 
 ![flutter-cli landing](docs/screenshots/landing.gif)
 
-*One line in your `.zshrc` turns `flutter run` into this — welcome banner, inline dashboard, scrollback preserved.*
+*One line in your shell config turns `flutter run` into this — welcome banner, inline dashboard, scrollback preserved.*
 
 </div>
 
@@ -15,14 +15,16 @@ Drops into your shell so `flutter run` *becomes* the dashboard. No new command t
 
 ## Install
 
+Works on **macOS, Linux and Windows**, with **bash, zsh, fish** and Git Bash / WSL on Windows.
+
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
 ```
 
-That's it. The installer drops a small helper on your `PATH` and adds **one line** to your shell rc:
+The installer drops a single helper on your `PATH` and adds **one line** to whichever shell config it detects (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`):
 
 ```sh
-eval "$(flutter-cli init zsh)"   # zsh / bash / fish all supported
+eval "$(flutter-cli init <your-shell>)"   # bash | zsh | fish
 ```
 
 Reload your shell, then:
@@ -34,6 +36,10 @@ flutter run
 🪄 The TUI takes over. Your IDE keeps using vanilla `flutter` (the shim only fires in your terminal), and `flutter pub`, `flutter doctor`, `flutter clean` — anything we don't enhance — passes through unchanged.
 
 **To remove, run `./uninstall.sh` or delete the eval line.** Non-invasive by design.
+
+### Don't want a shim?
+
+You can also call the binary directly — `flutter-cli run`, `flutter-cli test`, `flutter-cli build`. Same TUI, no shell wiring needed. Handy on CI runners or locked-down corporate machines where rc files are off-limits.
 
 ---
 
@@ -198,15 +204,15 @@ No `--machine`, no JSON parsing, no per-device prefix — exactly the same logs 
 
 ## How the shim works
 
-The installer adds this block to your rc file (idempotent, gated by sentinel comments so removing it is one line away):
+The installer adds this block to your shell config (idempotent, gated by sentinel comments so removing it is one line away):
 
 ```sh
 # >>> flutter-cli shim >>>
-eval "$(flutter-cli init zsh)"
+eval "$(flutter-cli init <shell>)"
 # <<< flutter-cli shim <<<
 ```
 
-What that `eval` expands to is roughly:
+For bash / zsh, that `eval` expands to roughly:
 
 ```sh
 flutter() {
@@ -216,6 +222,8 @@ flutter() {
   esac
 }
 ```
+
+…and for fish, the equivalent `function flutter ... switch $argv[1] ... end` with a `command flutter` fallback.
 
 **That's the whole magic trick.** Four `flutter` subcommands routed through the TUI, everything else passes through to the real binary. Your IDE plugins, CI pipelines, and dotfile zealotry are untouched.
 
@@ -227,8 +235,22 @@ flutter() {
 git clone https://github.com/Antoinegtir/flutter-cli
 cd flutter-cli
 cargo install --path crates/fl-cli
-echo 'eval "$(flutter-cli init zsh)"' >> ~/.zshrc
 ```
+
+Then wire the shim into the shell config of your choice:
+
+```sh
+# bash
+echo 'eval "$(flutter-cli init bash)"' >> ~/.bashrc
+
+# zsh
+echo 'eval "$(flutter-cli init zsh)"'  >> ~/.zshrc
+
+# fish
+echo 'flutter-cli init fish | source'  >> ~/.config/fish/config.fish
+```
+
+Or skip the shim entirely and call `flutter-cli run` / `test` / `build` directly.
 
 ---
 
