@@ -8,7 +8,7 @@
 
 A modern terminal UI for Flutter — **hot reload across N devices**, **live HTTP / perf inspector**, inline scrollback. Drops into your shell so `flutter run` *becomes* the dashboard. No new command to learn.
 
-![flutter-cli landing](https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/docs/screenshots/landing.gif)
+![flutter-cli landing](https://github.com/Antoinegtir/flutter-cli/raw/master/docs/screenshots/landing.gif)
 
 ## Install
 
