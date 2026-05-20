@@ -537,7 +537,9 @@ impl TuiRunner {
                 // The viewport sits at `viewport_area.bottom() - 1` so
                 // we move to `viewport_area.bottom()` then newline.
                 let area = self.terminal.get_frame().area();
-                let _ = self.terminal.set_cursor_position((0, area.bottom().saturating_sub(1)));
+                let _ = self
+                    .terminal
+                    .set_cursor_position((0, area.bottom().saturating_sub(1)));
                 {
                     let backend = self.terminal.backend_mut();
                     write!(backend, "\r\n")?;
