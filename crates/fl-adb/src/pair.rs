@@ -29,11 +29,20 @@ pub async fn pre_pair_wifi<R: CommandRunner + ?Sized>(
         .await
         .context("adb tcpip failed to spawn")?;
     if tcpip.status != 0 {
-        return Err(anyhow!("adb tcpip exited {}: {}", tcpip.status, tcpip.stderr.trim()));
+        return Err(anyhow!(
+            "adb tcpip exited {}: {}",
+            tcpip.status,
+            tcpip.stderr.trim()
+        ));
     }
 
     let ip_out = runner
-        .run("adb", &["-s", usb_serial, "shell", "ip", "-f", "inet", "addr", "show", "wlan0"])
+        .run(
+            "adb",
+            &[
+                "-s", usb_serial, "shell", "ip", "-f", "inet", "addr", "show", "wlan0",
+            ],
+        )
         .await
         .context("adb shell ip addr failed to spawn")?;
     let ip = parse_wlan_ip(&ip_out.stdout).ok_or_else(|| anyhow!("no wlan0 IPv4 found"))?;
@@ -44,7 +53,11 @@ pub async fn pre_pair_wifi<R: CommandRunner + ?Sized>(
         .await
         .context("adb connect failed to spawn")?;
     if connect.status != 0 || connect.stdout.contains("failed to connect") {
-        return Err(anyhow!("adb connect to {target} failed: {}{}", connect.stdout.trim(), connect.stderr.trim()));
+        return Err(anyhow!(
+            "adb connect to {target} failed: {}{}",
+            connect.stdout.trim(),
+            connect.stderr.trim()
+        ));
     }
 
     Ok(WifiTarget { ip, port })
@@ -57,12 +70,18 @@ mod tests {
 
     fn happy_runner() -> MockRunner {
         let m = MockRunner::new();
-        m.expect("adb -s ABC123 tcpip 5555", CommandOutput::ok("restarting in TCP mode port: 5555\n"));
+        m.expect(
+            "adb -s ABC123 tcpip 5555",
+            CommandOutput::ok("restarting in TCP mode port: 5555\n"),
+        );
         m.expect(
             "adb -s ABC123 shell ip -f inet addr show wlan0",
             CommandOutput::ok("    inet 192.168.1.42/24 brd 192.168.1.255 scope global wlan0\n"),
         );
-        m.expect("adb connect 192.168.1.42:5555", CommandOutput::ok("connected to 192.168.1.42:5555\n"));
+        m.expect(
+            "adb connect 192.168.1.42:5555",
+            CommandOutput::ok("connected to 192.168.1.42:5555\n"),
+        );
         m
     }
 
@@ -80,7 +99,10 @@ mod tests {
     async fn fails_when_no_ip_returned() {
         let r = MockRunner::new();
         r.expect("adb -s ABC123 tcpip 5555", CommandOutput::ok(""));
-        r.expect("adb -s ABC123 shell ip -f inet addr show wlan0", CommandOutput::ok(""));
+        r.expect(
+            "adb -s ABC123 shell ip -f inet addr show wlan0",
+            CommandOutput::ok(""),
+        );
         let err = pre_pair_wifi(&r, "ABC123", 5555).await.unwrap_err();
         assert!(err.to_string().contains("no wlan0 IPv4"));
     }

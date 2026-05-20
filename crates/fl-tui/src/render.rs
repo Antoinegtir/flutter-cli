@@ -128,8 +128,16 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         n => format!("{n} devices"),
     };
     let elapsed = format_elapsed(state.elapsed());
-    let chrono_icon = if state.compile_finished.is_some() { '✓' } else { '⏱' };
-    let chrono_color = if state.compile_finished.is_some() { theme.success } else { theme.fg };
+    let chrono_icon = if state.compile_finished.is_some() {
+        '✓'
+    } else {
+        '⏱'
+    };
+    let chrono_color = if state.compile_finished.is_some() {
+        theme.success
+    } else {
+        theme.fg
+    };
     let alpha = state.reload_flash_alpha();
     let bg = if alpha > 0.0 {
         lerp(theme.bg, theme.success, alpha * 0.4)
@@ -175,19 +183,24 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
 
     let cols = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(title_width), Constraint::Length(right_width)])
+        .constraints([
+            Constraint::Length(title_width),
+            Constraint::Length(right_width),
+        ])
         .split(inner);
 
     // Title is ALWAYS shown on the left — the banner doesn't replace
     // it, it overlays the center of the bar (see below). Keeps the
     // user oriented (which app / device / mode) even while a transient
     // status flashes by.
-    let brightness_icon: &str =
-        match state.brightness_state.load(std::sync::atomic::Ordering::Relaxed) {
-            crate::app::BRIGHTNESS_LIGHT => "☀️",
-            crate::app::BRIGHTNESS_DARK => "🌙",
-            _ => "⚙️",
-        };
+    let brightness_icon: &str = match state
+        .brightness_state
+        .load(std::sync::atomic::Ordering::Relaxed)
+    {
+        crate::app::BRIGHTNESS_LIGHT => "☀️",
+        crate::app::BRIGHTNESS_DARK => "🌙",
+        _ => "⚙️",
+    };
     let title_text = format!(
         " {brightness_icon}  fl ── {} · {} · {}",
         state.app_name, state.mode, device
@@ -195,7 +208,9 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     let title = truncate_to_width(&title_text, cols[0].width as usize);
     Paragraph::new(Line::styled(
         title,
-        Style::default().fg(theme.accent).bg(bg)
+        Style::default()
+            .fg(theme.accent)
+            .bg(bg)
             .add_modifier(ratatui::style::Modifier::BOLD),
     ))
     .render(cols[0], buf);
@@ -207,9 +222,9 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     // (see AppState::show_banner) and the bar returns to normal.
     if let Some(b) = &state.banner {
         let kind_color = match b.kind {
-            BannerKind::Info    => theme.cyan,
-            BannerKind::Warn    => theme.warn,
-            BannerKind::Error   => theme.error,
+            BannerKind::Info => theme.cyan,
+            BannerKind::Warn => theme.warn,
+            BannerKind::Error => theme.error,
             BannerKind::Success => theme.success,
         };
         let label = format!(" {} ", b.message);
@@ -219,7 +234,12 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         // the snackbar than render an unreadable smush.
         if label_w + 4 <= inner.width {
             let x = inner.x + (inner.width.saturating_sub(label_w)) / 2;
-            let overlay = Rect { x, y: inner.y, width: label_w, height: 1 };
+            let overlay = Rect {
+                x,
+                y: inner.y,
+                width: label_w,
+                height: 1,
+            };
             Paragraph::new(Line::styled(
                 label,
                 Style::default()
@@ -304,7 +324,11 @@ fn pack_footer_binds(width: usize) -> String {
     let trailing = 1;
     for (i, bind) in FOOTER_BINDS.iter().enumerate() {
         // Two spaces between entries, matching the previous tiers.
-        let extra = if i == 0 { bind.chars().count() } else { 2 + bind.chars().count() };
+        let extra = if i == 0 {
+            bind.chars().count()
+        } else {
+            2 + bind.chars().count()
+        };
         if out.chars().count() + extra + trailing > width {
             break;
         }
@@ -327,7 +351,11 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     // single-line summary on very narrow terminals.
     if state.app_ready() {
         let line = pack_footer_binds(area.width as usize);
-        let chosen = if line.is_empty() { FOOTER_SHORT.to_string() } else { line };
+        let chosen = if line.is_empty() {
+            FOOTER_SHORT.to_string()
+        } else {
+            line
+        };
         Paragraph::new(Line::styled(chosen, theme.dimmed())).render(area, buf);
         return;
     }
@@ -344,9 +372,15 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         >= (FOOTER_MEDIUM_PRE_READY_SHIMMER.chars().count()
             + FOOTER_MEDIUM_PRE_READY_STATIC.chars().count())
     {
-        (FOOTER_MEDIUM_PRE_READY_SHIMMER, FOOTER_MEDIUM_PRE_READY_STATIC)
+        (
+            FOOTER_MEDIUM_PRE_READY_SHIMMER,
+            FOOTER_MEDIUM_PRE_READY_STATIC,
+        )
     } else {
-        (FOOTER_SHORT_PRE_READY_SHIMMER, FOOTER_SHORT_PRE_READY_STATIC)
+        (
+            FOOTER_SHORT_PRE_READY_SHIMMER,
+            FOOTER_SHORT_PRE_READY_STATIC,
+        )
     };
 
     let phase = shimmer_phase(state.started_at.elapsed());
@@ -374,9 +408,19 @@ fn truncate_to_width(s: &str, max_chars: usize) -> String {
 
 fn lerp(a: ratatui::style::Color, b: ratatui::style::Color, t: f32) -> ratatui::style::Color {
     use ratatui::style::Color;
-    let (ar, ag, ab) = match a { Color::Rgb(r,g,b)=>(r,g,b), _=>(0,0,0) };
-    let (br, bg, bb) = match b { Color::Rgb(r,g,b)=>(r,g,b), _=>(0,0,0) };
-    let mix = |x: u8, y: u8| ((x as f32) + ((y as f32) - (x as f32)) * t).round().clamp(0.0, 255.0) as u8;
+    let (ar, ag, ab) = match a {
+        Color::Rgb(r, g, b) => (r, g, b),
+        _ => (0, 0, 0),
+    };
+    let (br, bg, bb) = match b {
+        Color::Rgb(r, g, b) => (r, g, b),
+        _ => (0, 0, 0),
+    };
+    let mix = |x: u8, y: u8| {
+        ((x as f32) + ((y as f32) - (x as f32)) * t)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
     Color::Rgb(mix(ar, br), mix(ag, bg), mix(ab, bb))
 }
 
@@ -388,7 +432,12 @@ mod tests {
     fn render_does_not_panic_on_small_area() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 80, 24));
         let state = AppState::new("my_app".into(), "debug".into());
-        render(Rect::new(0, 0, 80, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 80, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let header_cell = buf.get(1, 1);
         let _ = header_cell.symbol().to_owned();
     }
@@ -396,7 +445,9 @@ mod tests {
     fn dump(buf: &Buffer) -> String {
         let mut out = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { out.push_str(buf.get(x, y).symbol()); }
+            for x in 0..buf.area.width {
+                out.push_str(buf.get(x, y).symbol());
+            }
             out.push('\n');
         }
         out
@@ -406,9 +457,17 @@ mod tests {
     fn very_small_terminal_shows_too_small_message() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 30, 8));
         let state = AppState::new("my_app".into(), "debug".into());
-        render(Rect::new(0, 0, 30, 8), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 30, 8),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
-        assert!(text.contains("too small"), "missing too-small message, got:\n{text}");
+        assert!(
+            text.contains("too small"),
+            "missing too-small message, got:\n{text}"
+        );
     }
 
     #[test]
@@ -419,7 +478,12 @@ mod tests {
         // so the only two panels we expect to find are these two.
         let mut buf = Buffer::empty(Rect::new(0, 0, 70, 30));
         let state = AppState::new("my_app".into(), "debug".into());
-        render(Rect::new(0, 0, 70, 30), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 70, 30),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
         assert!(text.contains("Performance"), "missing Performance panel");
         assert!(text.contains("Devices"), "missing Devices panel");
@@ -431,7 +495,12 @@ mod tests {
         // be the pre-ready variant and OMIT r/R/b/p/P/o entirely.
         let mut buf = Buffer::empty(Rect::new(0, 0, 60, 20));
         let state = AppState::new("my_app".into(), "debug".into());
-        render(Rect::new(0, 0, 60, 20), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 60, 20),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
         assert!(text.contains("building"), "missing building hint:\n{text}");
         assert!(
@@ -445,7 +514,12 @@ mod tests {
         let mut buf = Buffer::empty(Rect::new(0, 0, 120, 24));
         let mut state = AppState::new("my_app".into(), "debug".into());
         state.vm_connected = true;
-        render(Rect::new(0, 0, 120, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 120, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
         assert!(
             text.contains("[r] reload"),
@@ -485,7 +559,12 @@ mod tests {
     fn header_includes_chrono_with_running_icon() {
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
         let state = AppState::new("my_app".into(), "debug".into());
-        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 100, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
         assert!(text.contains('⏱'), "missing chrono icon, got:\n{text}");
         assert!(text.contains("00:00"), "missing elapsed time, got:\n{text}");
@@ -498,14 +577,27 @@ mod tests {
         // and flip it Ready — that's enough for the green checkmark.
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
         let mut state = AppState::new("my_app".into(), "debug".into());
-        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
-            serial: "ABC".into(),
-            state: fl_core::DeviceSessionState::Ready,
-        }));
-        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "ABC".into(),
+                state: fl_core::DeviceSessionState::Ready,
+            },
+        ));
+        render(
+            Rect::new(0, 0, 100, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
-        assert!(text.contains('✓'), "expected checkmark after Ready, got:\n{text}");
-        assert!(!text.contains('⏱'), "chrono running icon should be gone, got:\n{text}");
+        assert!(
+            text.contains('✓'),
+            "expected checkmark after Ready, got:\n{text}"
+        );
+        assert!(
+            !text.contains('⏱'),
+            "chrono running icon should be gone, got:\n{text}"
+        );
     }
 
     #[test]
@@ -516,23 +608,40 @@ mod tests {
         // still a second app compiling.
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
         let mut state = AppState::new("my_app".into(), "debug".into());
-        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
-            serial: "ABC".into(),
-            state: fl_core::DeviceSessionState::Connecting,
-        }));
-        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
-            serial: "XYZ".into(),
-            state: fl_core::DeviceSessionState::Connecting,
-        }));
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "ABC".into(),
+                state: fl_core::DeviceSessionState::Connecting,
+            },
+        ));
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "XYZ".into(),
+                state: fl_core::DeviceSessionState::Connecting,
+            },
+        ));
         // First device finishes building.
-        state.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
-            serial: "ABC".into(),
-            state: fl_core::DeviceSessionState::Ready,
-        }));
-        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "ABC".into(),
+                state: fl_core::DeviceSessionState::Ready,
+            },
+        ));
+        render(
+            Rect::new(0, 0, 100, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump(&buf);
-        assert!(text.contains('⏱'), "chrono should still be running, got:\n{text}");
-        assert!(!text.contains('✓'), "no checkmark while a device builds, got:\n{text}");
+        assert!(
+            text.contains('⏱'),
+            "chrono should still be running, got:\n{text}"
+        );
+        assert!(
+            !text.contains('✓'),
+            "no checkmark while a device builds, got:\n{text}"
+        );
     }
 
     #[test]
@@ -543,7 +652,12 @@ mod tests {
             level: fl_core::LogLevel::Info,
             message: "App started".into(),
         }));
-        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 100, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let dump = dump_buffer(&buf);
         insta::assert_snapshot!(dump);
     }

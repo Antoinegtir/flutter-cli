@@ -5,7 +5,11 @@ use fl_core::BuildMode;
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "flutter-cli", version, about = "A modern Flutter CLI with seamless USB→WiFi hot reload")]
+#[command(
+    name = "flutter-cli",
+    version,
+    about = "A modern Flutter CLI with seamless USB→WiFi hot reload"
+)]
 pub struct Cli {
     #[command(subcommand)]
     pub cmd: Cmd,
@@ -23,28 +27,39 @@ pub enum Cmd {
     /// `--dart-define=`, `--target`, etc. without `fl` having to teach
     /// each one explicitly: `fl run --release -- --flavor prod --dart-define=API=https://…`.
     Run {
-        #[arg(short, long)] project: Option<PathBuf>,
-        #[arg(short, long)] device: Vec<String>,
-        #[arg(long)] all: bool,
-        #[arg(long)] no_picker: bool,
-        #[arg(long)] no_wifi: bool,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+        #[arg(short, long)]
+        device: Vec<String>,
+        #[arg(long)]
+        all: bool,
+        #[arg(long)]
+        no_picker: bool,
+        #[arg(long)]
+        no_wifi: bool,
         /// Skip the dashboard and stream every event to stdout as plain text.
         /// Useful for debugging or when piping into another tool.
-        #[arg(long, alias = "logs")] no_tui: bool,
+        #[arg(long, alias = "logs")]
+        no_tui: bool,
         /// Pure passthrough: exec the real `flutter run` with stdio
         /// inherited. Same output as if you had typed `flutter run`
         /// without `fl` in your path. No TUI, no `--machine`, no
         /// JSON parsing — just Flutter's vanilla logs.
-        #[arg(long)] basic: bool,
+        #[arg(long)]
+        basic: bool,
         /// Build in release mode (mirrors `flutter run --release`).
-        #[arg(long, conflicts_with_all = ["profile", "debug"])] release: bool,
+        #[arg(long, conflicts_with_all = ["profile", "debug"])]
+        release: bool,
         /// Build in profile mode (mirrors `flutter run --profile`).
-        #[arg(long, conflicts_with = "debug")] profile: bool,
+        #[arg(long, conflicts_with = "debug")]
+        profile: bool,
         /// Build in debug mode (the default).
-        #[arg(long)] debug: bool,
+        #[arg(long)]
+        debug: bool,
         /// Pass-through args forwarded verbatim to `flutter run`.
         /// Use a `--` separator: `fl run -- --flavor prod --dart-define=X=Y`.
-        #[arg(last = true, allow_hyphen_values = true)] extra: Vec<String>,
+        #[arg(last = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
     },
     /// Build a Flutter app for a given target.
     ///
@@ -56,15 +71,21 @@ pub enum Cmd {
     /// `--` separator is forwarded verbatim.
     Build {
         target: Option<String>,
-        #[arg(short, long)] project: Option<PathBuf>,
-        #[arg(long, conflicts_with_all = ["profile", "debug"])] release: bool,
-        #[arg(long, conflicts_with = "debug")] profile: bool,
-        #[arg(long)] debug: bool,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
+        #[arg(long, conflicts_with_all = ["profile", "debug"])]
+        release: bool,
+        #[arg(long, conflicts_with = "debug")]
+        profile: bool,
+        #[arg(long)]
+        debug: bool,
         /// Skip the TUI dashboard and pass the build through with
         /// vanilla `flutter build` stdio. Useful in CI, when piping
         /// into another tool, or when the TUI itself is misbehaving.
-        #[arg(long)] basic: bool,
-        #[arg(last = true, allow_hyphen_values = true)] extra: Vec<String>,
+        #[arg(long)]
+        basic: bool,
+        #[arg(last = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
     },
     /// Run flutter test with a live TUI.
     ///
@@ -82,41 +103,54 @@ pub enum Cmd {
     ///   • Anything else: pass after `--`, e.g.
     ///       `fl test -- --start-paused --total-shards 4`.
     Test {
-        #[arg(short, long)] project: Option<PathBuf>,
+        #[arg(short, long)]
+        project: Option<PathBuf>,
         /// Target device for integration / e2e tests (id, name prefix,
         /// or `all`). Equivalent to `flutter test -d <id>`.
-        #[arg(short = 'd', long)] device: Option<String>,
+        #[arg(short = 'd', long)]
+        device: Option<String>,
         /// Run tests whose name matches this regular expression.
-        #[arg(short, long)] name: Option<String>,
+        #[arg(short, long)]
+        name: Option<String>,
         /// Run tests whose name contains this literal substring.
-        #[arg(long)] plain_name: Option<String>,
+        #[arg(long)]
+        plain_name: Option<String>,
         /// Run only tests tagged with this value (repeatable).
-        #[arg(long)] tags: Vec<String>,
+        #[arg(long)]
+        tags: Vec<String>,
         /// Skip tests tagged with this value (repeatable).
-        #[arg(long)] exclude_tags: Vec<String>,
+        #[arg(long)]
+        exclude_tags: Vec<String>,
         /// Collect coverage and write to `coverage/lcov.info`.
-        #[arg(long)] coverage: bool,
+        #[arg(long)]
+        coverage: bool,
         /// Regenerate golden test files instead of comparing against them.
-        #[arg(long)] update_goldens: bool,
+        #[arg(long)]
+        update_goldens: bool,
         /// Shorthand: run only the golden test suite living under
         /// `test/golden/`. Equivalent to `fl test test/golden/` but
         /// pairs naturally with `--update-goldens`. Ignored when one
         /// or more explicit `paths` are given.
-        #[arg(long)] golden: bool,
+        #[arg(long)]
+        golden: bool,
         /// Test reporter format: compact, expanded, github, json.
-        #[arg(long)] reporter: Option<String>,
+        #[arg(long)]
+        reporter: Option<String>,
         /// Maximum number of test suites to run in parallel.
-        #[arg(short = 'j', long)] concurrency: Option<u32>,
+        #[arg(short = 'j', long)]
+        concurrency: Option<u32>,
         /// Skip the TUI test runner and stream raw `flutter test`
         /// output. CI-friendly, pipe-friendly, and useful when the
         /// TUI is masking an obscure tool error.
-        #[arg(long)] basic: bool,
+        #[arg(long)]
+        basic: bool,
         /// Test files or directories to run. Defaults to `test/` when
         /// omitted, matching `flutter test`'s default behaviour.
         paths: Vec<String>,
         /// Pass-through args forwarded verbatim to `flutter test`.
         /// Use a `--` separator: `fl test -- --start-paused --shard-index 0`.
-        #[arg(last = true, allow_hyphen_values = true)] extra: Vec<String>,
+        #[arg(last = true, allow_hyphen_values = true)]
+        extra: Vec<String>,
     },
     /// Emit a shell shim that hijacks `flutter` so `flutter run`,
     /// `flutter test`, `flutter build`, `flutter devices` flow through
@@ -131,7 +165,8 @@ pub enum Cmd {
     /// IDEs that call the `flutter` binary still bypass the shim and
     /// get vanilla behaviour, which is what you want.
     Init {
-        #[arg(value_enum)] shell: ShellKind,
+        #[arg(value_enum)]
+        shell: ShellKind,
     },
     /// Forward any other subcommand verbatim to `flutter` with stdio
     /// inherited. Lets `fl doctor`, `fl clean`, `fl analyze`, etc. work
@@ -153,11 +188,21 @@ pub enum ShellKind {
 /// `BuildMode`, falling back to `default` when none is set. Clap's
 /// `conflicts_with*` rules already guarantee at most one is true, so
 /// the priority order here is just defensive.
-pub fn build_mode_from_flags(release: bool, profile: bool, debug: bool, default: BuildMode) -> BuildMode {
-    if release { BuildMode::Release }
-    else if profile { BuildMode::Profile }
-    else if debug { BuildMode::Debug }
-    else { default }
+pub fn build_mode_from_flags(
+    release: bool,
+    profile: bool,
+    debug: bool,
+    default: BuildMode,
+) -> BuildMode {
+    if release {
+        BuildMode::Release
+    } else if profile {
+        BuildMode::Profile
+    } else if debug {
+        BuildMode::Debug
+    } else {
+        default
+    }
 }
 
 #[cfg(test)]
@@ -174,7 +219,15 @@ mod tests {
     fn parses_run_with_options() {
         let c = Cli::parse_from(["fl", "run", "--device", "1.2.3.4:5555", "--no-wifi"]);
         match c.cmd {
-            Cmd::Run { device, no_wifi, release, profile, debug, all, .. } => {
+            Cmd::Run {
+                device,
+                no_wifi,
+                release,
+                profile,
+                debug,
+                all,
+                ..
+            } => {
                 assert_eq!(device, vec!["1.2.3.4:5555".to_string()]);
                 assert!(no_wifi);
                 assert!(!all);
@@ -210,7 +263,12 @@ mod tests {
     fn parses_run_with_release_flag() {
         let c = Cli::parse_from(["fl", "run", "--release"]);
         match c.cmd {
-            Cmd::Run { release, profile, debug, .. } => {
+            Cmd::Run {
+                release,
+                profile,
+                debug,
+                ..
+            } => {
                 assert!(release);
                 assert!(!profile && !debug);
                 assert_eq!(
@@ -225,8 +283,13 @@ mod tests {
     #[test]
     fn parses_run_with_passthrough_extra_args() {
         let c = Cli::parse_from([
-            "fl", "run", "--release", "--",
-            "--flavor", "prod", "--dart-define=API=https://x",
+            "fl",
+            "run",
+            "--release",
+            "--",
+            "--flavor",
+            "prod",
+            "--dart-define=API=https://x",
         ]);
         match c.cmd {
             Cmd::Run { release, extra, .. } => {
@@ -257,7 +320,14 @@ mod tests {
     fn parses_build_apk() {
         let c = Cli::parse_from(["fl", "build", "apk"]);
         match c.cmd {
-            Cmd::Build { target, release, profile, debug, basic: _, .. } => {
+            Cmd::Build {
+                target,
+                release,
+                profile,
+                debug,
+                basic: _,
+                ..
+            } => {
                 assert_eq!(target.as_deref(), Some("apk"));
                 // Default mode for `build` is release (unlike `run`).
                 assert_eq!(

@@ -87,8 +87,12 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
             project.display()
         ));
     }
-    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
-        .ok_or_else(|| anyhow!("flutter binary not found"))?;
+    let flutter = resolve_flutter(
+        None,
+        std::env::var("FLUTTER_ROOT").ok().as_deref(),
+        dirs_home(),
+    )
+    .ok_or_else(|| anyhow!("flutter binary not found"))?;
 
     // If the user is running integration / e2e tests and didn't pin a
     // device, `flutter test` will either auto-pick (one device) or
@@ -301,10 +305,7 @@ fn spawn_flutter_test(
         let _ = stderr_task.await;
 
         if !saw_all_done.load(Ordering::SeqCst) {
-            let success = exit_status
-                .as_ref()
-                .map(|s| s.success())
-                .unwrap_or(false);
+            let success = exit_status.as_ref().map(|s| s.success()).unwrap_or(false);
             // If the child died before any test event was reported,
             // make the failure mode obvious in the view.
             if let Some(code) = exit_status.as_ref().and_then(|s| s.code()) {
@@ -332,7 +333,10 @@ fn spawn_flutter_test(
         }
     });
 
-    Ok(TestRun { kill: Some(kill_tx), join })
+    Ok(TestRun {
+        kill: Some(kill_tx),
+        join,
+    })
 }
 
 async fn drain_headless(mut rx: mpsc::Receiver<fl_core::TestEvent>) -> anyhow::Result<()> {

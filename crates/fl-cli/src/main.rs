@@ -10,8 +10,8 @@ mod test_cmd;
 use anyhow::Context;
 use clap::Parser;
 use cli::{build_mode_from_flags, Cli, Cmd};
-use fl_core::BuildMode;
 use directories::ProjectDirs;
+use fl_core::BuildMode;
 use tracing_appender::rolling::{RollingFileAppender, Rotation};
 use tracing_subscriber::{fmt, prelude::*, EnvFilter};
 
@@ -59,7 +59,19 @@ async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     match cli.cmd {
         Cmd::Devices => devices_cmd::run().await,
-        Cmd::Run { project, device, all, no_picker, no_wifi, no_tui, basic, release, profile, debug, extra } => {
+        Cmd::Run {
+            project,
+            device,
+            all,
+            no_picker,
+            no_wifi,
+            no_tui,
+            basic,
+            release,
+            profile,
+            debug,
+            extra,
+        } => {
             let mode = build_mode_from_flags(release, profile, debug, BuildMode::Debug);
             if basic {
                 // Pure passthrough — exec `flutter run [-d device]
@@ -80,12 +92,26 @@ async fn main() -> anyhow::Result<()> {
                     args.push(mode.flutter_flag().to_string());
                 }
                 args.extend(extra);
-                let _ = no_picker; let _ = no_wifi; let _ = no_tui; let _ = project;
+                let _ = no_picker;
+                let _ = no_wifi;
+                let _ = no_tui;
+                let _ = project;
                 return external_cmd::run(args).await;
             }
-            run_cmd::run(project, device, all, no_picker, no_wifi, no_tui, mode, extra).await
+            run_cmd::run(
+                project, device, all, no_picker, no_wifi, no_tui, mode, extra,
+            )
+            .await
         }
-        Cmd::Build { target, project, release, profile, debug, basic, extra } => {
+        Cmd::Build {
+            target,
+            project,
+            release,
+            profile,
+            debug,
+            basic,
+            extra,
+        } => {
             // Build defaults to release (most common use case for `flutter build`).
             let mode = build_mode_from_flags(release, profile, debug, BuildMode::Release);
             match target {
@@ -113,8 +139,20 @@ async fn main() -> anyhow::Result<()> {
         }
         Cmd::Init { shell } => init_cmd::run(shell).await,
         Cmd::Test {
-            project, device, name, plain_name, tags, exclude_tags,
-            coverage, update_goldens, golden, reporter, concurrency, basic, paths, extra,
+            project,
+            device,
+            name,
+            plain_name,
+            tags,
+            exclude_tags,
+            coverage,
+            update_goldens,
+            golden,
+            reporter,
+            concurrency,
+            basic,
+            paths,
+            extra,
         } => {
             if basic {
                 // `--basic` skips the TUI test runner entirely and
@@ -122,15 +160,39 @@ async fn main() -> anyhow::Result<()> {
                 // inherited stdio. Mirrors what users get without
                 // `fl` installed.
                 let mut args = vec!["test".to_string()];
-                if let Some(d) = device { args.push("-d".into()); args.push(d); }
-                if let Some(n) = name { args.push("--name".into()); args.push(n); }
-                if let Some(n) = plain_name { args.push("--plain-name".into()); args.push(n); }
-                for t in tags { args.push("--tags".into()); args.push(t); }
-                for t in exclude_tags { args.push("--exclude-tags".into()); args.push(t); }
-                if coverage { args.push("--coverage".into()); }
-                if update_goldens { args.push("--update-goldens".into()); }
-                if let Some(r) = reporter { args.push("--reporter".into()); args.push(r); }
-                if let Some(c) = concurrency { args.push(format!("--concurrency={c}")); }
+                if let Some(d) = device {
+                    args.push("-d".into());
+                    args.push(d);
+                }
+                if let Some(n) = name {
+                    args.push("--name".into());
+                    args.push(n);
+                }
+                if let Some(n) = plain_name {
+                    args.push("--plain-name".into());
+                    args.push(n);
+                }
+                for t in tags {
+                    args.push("--tags".into());
+                    args.push(t);
+                }
+                for t in exclude_tags {
+                    args.push("--exclude-tags".into());
+                    args.push(t);
+                }
+                if coverage {
+                    args.push("--coverage".into());
+                }
+                if update_goldens {
+                    args.push("--update-goldens".into());
+                }
+                if let Some(r) = reporter {
+                    args.push("--reporter".into());
+                    args.push(r);
+                }
+                if let Some(c) = concurrency {
+                    args.push(format!("--concurrency={c}"));
+                }
                 args.extend(extra);
                 // `--golden` defaults paths to test/golden/ when no
                 // explicit paths were given — mirror the TUI flow.
@@ -142,9 +204,21 @@ async fn main() -> anyhow::Result<()> {
                 return external_cmd::run(args).await;
             }
             test_cmd::run(test_cmd::Options {
-                project, device, name, plain_name, tags, exclude_tags,
-                coverage, update_goldens, golden, reporter, concurrency, paths, extra,
-            }).await
+                project,
+                device,
+                name,
+                plain_name,
+                tags,
+                exclude_tags,
+                coverage,
+                update_goldens,
+                golden,
+                reporter,
+                concurrency,
+                paths,
+                extra,
+            })
+            .await
         }
         Cmd::External(args) => external_cmd::run(args).await,
     }

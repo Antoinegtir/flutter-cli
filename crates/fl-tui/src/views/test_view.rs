@@ -245,7 +245,12 @@ impl View for TestView {
                 self.names.insert(id, name.clone());
                 self.running.push((id, name));
             }
-            TestEvent::TestDone { id, name, result, duration_ms } => {
+            TestEvent::TestDone {
+                id,
+                name,
+                result,
+                duration_ms,
+            } => {
                 self.running.retain(|(rid, _)| *rid != id);
                 match result {
                     TestResult::Success => self.passed += 1,
@@ -290,7 +295,11 @@ impl View for TestView {
                     .and_then(|i| self.names.get(&i).cloned())
                     .or_else(|| self.running.last().map(|(_, n)| n.clone()))
                     .unwrap_or_else(|| "<unknown>".into());
-                self.failures.push(TestFailure { name, message, stack });
+                self.failures.push(TestFailure {
+                    name,
+                    message,
+                    stack,
+                });
             }
             TestEvent::AllDone { success, .. } => {
                 self.all_done = true;
@@ -372,10 +381,9 @@ impl View for TestView {
                             TestBannerKind::Success,
                             format!("📋 Copied {n} failure(s) to clipboard"),
                         ),
-                        Err(e) => self.show_banner(
-                            TestBannerKind::Info,
-                            format!("Copy failed: {e}"),
-                        ),
+                        Err(e) => {
+                            self.show_banner(TestBannerKind::Info, format!("Copy failed: {e}"))
+                        }
                     }
                 }
             }
@@ -482,7 +490,10 @@ fn render_live_panel(area: Rect, buf: &mut Buffer, v: &TestView, theme: &Theme) 
     } else if v.running.is_empty() {
         format!(" {focus_mark}Tests{scroll_hint} ")
     } else {
-        format!(" {focus_mark}Tests · {} running{scroll_hint} ", v.running.len())
+        format!(
+            " {focus_mark}Tests · {} running{scroll_hint} ",
+            v.running.len()
+        )
     };
     let border_style = if focused {
         Style::default().fg(theme.accent).bg(theme.bg)
@@ -729,7 +740,10 @@ mod tests {
     #[test]
     fn passed_increments_on_success() {
         let mut v = TestView::new();
-        v.apply(TestEvent::TestStarted { id: 1, name: "t".into() });
+        v.apply(TestEvent::TestStarted {
+            id: 1,
+            name: "t".into(),
+        });
         v.apply(TestEvent::TestDone {
             id: 1,
             name: "t".into(),
@@ -743,8 +757,15 @@ mod tests {
     #[test]
     fn failed_increments_on_failure_and_records_failure() {
         let mut v = TestView::new();
-        v.apply(TestEvent::TestStarted { id: 2, name: "t2".into() });
-        v.apply(TestEvent::Error { id: Some(2), message: "boom".into(), stack: None });
+        v.apply(TestEvent::TestStarted {
+            id: 2,
+            name: "t2".into(),
+        });
+        v.apply(TestEvent::Error {
+            id: Some(2),
+            message: "boom".into(),
+            stack: None,
+        });
         v.apply(TestEvent::TestDone {
             id: 2,
             name: "t2".into(),
@@ -842,7 +863,10 @@ mod tests {
     fn tests_scroll_keeps_anchor_when_new_tests_complete() {
         let mut v = TestView::new();
         for i in 0..5 {
-            v.apply(TestEvent::TestStarted { id: i, name: format!("t{i}") });
+            v.apply(TestEvent::TestStarted {
+                id: i,
+                name: format!("t{i}"),
+            });
             v.apply(TestEvent::TestDone {
                 id: i,
                 name: format!("t{i}"),
@@ -855,7 +879,10 @@ mod tests {
         v.handle_key(FlKey::Up);
         assert_eq!(v.tests_scroll, 2);
         // New tests come in — offset should bump so we stay anchored.
-        v.apply(TestEvent::TestStarted { id: 99, name: "t99".into() });
+        v.apply(TestEvent::TestStarted {
+            id: 99,
+            name: "t99".into(),
+        });
         v.apply(TestEvent::TestDone {
             id: 99,
             name: "t99".into(),

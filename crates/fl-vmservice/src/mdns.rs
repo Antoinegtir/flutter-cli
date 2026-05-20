@@ -48,7 +48,10 @@ pub type AdCache = Arc<Mutex<HashMap<String, VmServiceAd>>>;
 
 /// Snapshot the current ads so callers don't have to hold the mutex.
 pub fn snapshot(cache: &AdCache) -> Vec<VmServiceAd> {
-    cache.lock().map(|c| c.values().cloned().collect()).unwrap_or_default()
+    cache
+        .lock()
+        .map(|c| c.values().cloned().collect())
+        .unwrap_or_default()
 }
 
 /// Look up the LAN endpoint for a given auth code, if seen.
@@ -74,7 +77,8 @@ pub fn spawn_browser() -> anyhow::Result<(AdCache, JoinHandle<()>)> {
                     ServiceEvent::ServiceResolved(info) => {
                         if let Some(ad) = make_ad(&info) {
                             if let Ok(mut c) = cache_clone.lock() {
-                                let key = ad.auth_code.clone().unwrap_or_else(|| ad.fullname.clone());
+                                let key =
+                                    ad.auth_code.clone().unwrap_or_else(|| ad.fullname.clone());
                                 c.insert(key, ad);
                             }
                         }
@@ -126,8 +130,8 @@ fn make_ad(info: &ServiceInfo) -> Option<VmServiceAd> {
 /// itself beats arbitrary public addresses.
 fn ipv4_priority(ip: &std::net::Ipv4Addr) -> u8 {
     let o = ip.octets();
-    let is_rfc1918 = matches!(o, [10, ..] | [192, 168, ..])
-        || (o[0] == 172 && (16..=31).contains(&o[1]));
+    let is_rfc1918 =
+        matches!(o, [10, ..] | [192, 168, ..]) || (o[0] == 172 && (16..=31).contains(&o[1]));
     let is_cgnat = o[0] == 100 && (64..=127).contains(&o[1]);
     if is_rfc1918 {
         100

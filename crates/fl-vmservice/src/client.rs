@@ -95,7 +95,8 @@ impl VmServiceClient {
     }
 
     pub async fn stream_listen(&self, stream_id: &str) -> anyhow::Result<()> {
-        self.call("streamListen", json!({ "streamId": stream_id })).await?;
+        self.call("streamListen", json!({ "streamId": stream_id }))
+            .await?;
         Ok(())
     }
 }
@@ -114,7 +115,10 @@ fn stream_event_to_vm_event(stream_id: &str, event: &Value) -> Option<VmEvent> {
         }
         ("Isolate", _) => Some(VmEvent::IsolateEvent(kind.to_string())),
         ("Extension", "Extension") => {
-            let name = event.get("extensionKind").and_then(Value::as_str).unwrap_or("");
+            let name = event
+                .get("extensionKind")
+                .and_then(Value::as_str)
+                .unwrap_or("");
             // Flutter emits `Flutter.Frame` automatically in debug/profile
             // builds with fields `build` and `raster` (microseconds). Some
             // older builds use `Flutter.FrameTiming` with `ui`/`raster` —
@@ -127,16 +131,35 @@ fn stream_event_to_vm_event(stream_id: &str, event: &Value) -> Option<VmEvent> {
                     .and_then(Value::as_u64)
                     .unwrap_or(0);
                 let raster = data.get("raster").and_then(Value::as_u64).unwrap_or(0);
-                Some(VmEvent::FrameTiming { ui_micros: ui, raster_micros: raster })
+                Some(VmEvent::FrameTiming {
+                    ui_micros: ui,
+                    raster_micros: raster,
+                })
             } else {
                 None
             }
         }
         ("GC", _) => {
-            let new = event.get("new").and_then(|n| n.get("used")).and_then(Value::as_f64).unwrap_or(0.0);
-            let old = event.get("old").and_then(|o| o.get("used")).and_then(Value::as_f64).unwrap_or(0.0);
-            let cap_new = event.get("new").and_then(|n| n.get("capacity")).and_then(Value::as_f64).unwrap_or(0.0);
-            let cap_old = event.get("old").and_then(|o| o.get("capacity")).and_then(Value::as_f64).unwrap_or(0.0);
+            let new = event
+                .get("new")
+                .and_then(|n| n.get("used"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let old = event
+                .get("old")
+                .and_then(|o| o.get("used"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let cap_new = event
+                .get("new")
+                .and_then(|n| n.get("capacity"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
+            let cap_old = event
+                .get("old")
+                .and_then(|o| o.get("capacity"))
+                .and_then(Value::as_f64)
+                .unwrap_or(0.0);
             Some(VmEvent::GcStats {
                 used_mb: (new + old) / (1024.0 * 1024.0),
                 total_mb: (cap_new + cap_old) / (1024.0 * 1024.0),
@@ -219,7 +242,10 @@ mod tests {
         let uri = spawn_mock_ws(|_req| json!({"type":"Success"})).await;
         let (tx, mut _rx) = mpsc::channel(16);
         let client = VmServiceClient::connect(&uri, tx).await.unwrap();
-        let v = client.call("streamListen", json!({"streamId":"Stdout"})).await.unwrap();
+        let v = client
+            .call("streamListen", json!({"streamId":"Stdout"}))
+            .await
+            .unwrap();
         assert_eq!(v["type"], "Success");
     }
 

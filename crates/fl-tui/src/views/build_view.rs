@@ -79,7 +79,11 @@ impl View for BuildView {
 
     fn apply(&mut self, input: Self::Input) {
         match input {
-            FlutterEvent::Progress { id, message, finished } => {
+            FlutterEvent::Progress {
+                id,
+                message,
+                finished,
+            } => {
                 if let Some(existing) = self.steps.iter_mut().find(|s| s.id == id) {
                     existing.message = message;
                     if finished && existing.status == StepStatus::Running {
@@ -90,7 +94,11 @@ impl View for BuildView {
                     self.steps.push(BuildStep {
                         id,
                         message,
-                        status: if finished { StepStatus::Done } else { StepStatus::Running },
+                        status: if finished {
+                            StepStatus::Done
+                        } else {
+                            StepStatus::Running
+                        },
                         started_at: Instant::now(),
                         finished_at: if finished { Some(Instant::now()) } else { None },
                     });
@@ -226,10 +234,7 @@ impl View for BuildView {
                         LogLevel::Info => theme.fg,
                     }
                 };
-                let truncated: String = msg
-                    .chars()
-                    .take(steps_inner.width as usize)
-                    .collect();
+                let truncated: String = msg.chars().take(steps_inner.width as usize).collect();
                 lines.push(Line::styled(
                     truncated,
                     Style::default().fg(color).bg(theme.bg),
@@ -284,8 +289,8 @@ impl View for BuildView {
                 for (lvl, msg) in &self.log_tail {
                     let tag = match lvl {
                         LogLevel::Error => "ERROR",
-                        LogLevel::Warn  => "WARN ",
-                        LogLevel::Info  => "INFO ",
+                        LogLevel::Warn => "WARN ",
+                        LogLevel::Info => "INFO ",
                         LogLevel::Debug => "DEBUG",
                         LogLevel::Trace => "TRACE",
                     };
@@ -300,10 +305,7 @@ impl View for BuildView {
                         LogLevel::Info,
                         format!("📋 Copied {n} log lines to clipboard"),
                     ),
-                    Err(e) => (
-                        LogLevel::Warn,
-                        format!("clipboard copy failed: {e}"),
-                    ),
+                    Err(e) => (LogLevel::Warn, format!("clipboard copy failed: {e}")),
                 };
                 self.log_tail.push((lvl, msg));
                 if self.log_tail.len() > 200 {
@@ -418,8 +420,16 @@ mod tests {
     #[test]
     fn progress_with_finished_marks_step_done() {
         let mut v = BuildView::new("apk".to_string(), BuildMode::Release);
-        v.apply(FlutterEvent::Progress { id: "g".into(), message: "x".into(), finished: false });
-        v.apply(FlutterEvent::Progress { id: "g".into(), message: "x done".into(), finished: true });
+        v.apply(FlutterEvent::Progress {
+            id: "g".into(),
+            message: "x".into(),
+            finished: false,
+        });
+        v.apply(FlutterEvent::Progress {
+            id: "g".into(),
+            message: "x done".into(),
+            finished: true,
+        });
         assert_eq!(v.steps[0].status, StepStatus::Done);
     }
 
@@ -437,7 +447,11 @@ mod tests {
     #[test]
     fn stopped_marks_running_step_failed_on_nonzero_exit() {
         let mut v = BuildView::new("apk".to_string(), BuildMode::Release);
-        v.apply(FlutterEvent::Progress { id: "g".into(), message: "x".into(), finished: false });
+        v.apply(FlutterEvent::Progress {
+            id: "g".into(),
+            message: "x".into(),
+            finished: false,
+        });
         v.apply(FlutterEvent::Stopped { exit_code: Some(1) });
         assert_eq!(v.steps[0].status, StepStatus::Failed);
         // On a failure exit, the view lingers ~2s before quitting so

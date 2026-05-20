@@ -30,9 +30,13 @@ fn sparkline(samples: &std::collections::VecDeque<f32>, max: f32, width: usize) 
 }
 
 fn fps_color(fps: f32, theme: &Theme) -> ratatui::style::Color {
-    if fps >= 55.0 { theme.success }
-    else if fps >= 30.0 { theme.warn }
-    else { theme.error }
+    if fps >= 55.0 {
+        theme.success
+    } else if fps >= 30.0 {
+        theme.warn
+    } else {
+        theme.error
+    }
 }
 
 pub fn render_performance(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
@@ -80,7 +84,12 @@ fn render_per_device(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
         } else {
             per_dev_h.min((inner.y + inner.height).saturating_sub(y))
         };
-        let cell = Rect { x: inner.x, y, width: inner.width, height: h };
+        let cell = Rect {
+            x: inner.x,
+            y,
+            width: inner.width,
+            height: h,
+        };
         render_one_device(cell, buf, state, sess, theme);
         y = y.saturating_add(h);
     }
@@ -97,19 +106,20 @@ fn render_one_device(
     let fps_samples = perf.map(|p| &p.fps_samples);
     let mem_samples = perf.map(|p| &p.mem_samples);
     let cap = perf.map(|p| p.heap_capacity_mb).unwrap_or(0.0);
-    let cur_fps = fps_samples
-        .and_then(|s| s.back().copied())
-        .unwrap_or(0.0);
-    let cur_mem = mem_samples
-        .and_then(|s| s.back().copied())
-        .unwrap_or(0.0);
+    let cur_fps = fps_samples.and_then(|s| s.back().copied()).unwrap_or(0.0);
+    let cur_mem = mem_samples.and_then(|s| s.back().copied()).unwrap_or(0.0);
 
     let w = cell.width as usize;
 
     // Row 1: device name (so the user can tell which block is which).
     let name = format!("· {}", sess.display_name);
     Paragraph::new(Line::styled(name, theme.dimmed())).render(
-        Rect { x: cell.x, y: cell.y, width: cell.width, height: 1 },
+        Rect {
+            x: cell.x,
+            y: cell.y,
+            width: cell.width,
+            height: 1,
+        },
         buf,
     );
 
@@ -123,7 +133,12 @@ fn render_one_device(
             Style::default().fg(fps_color(cur_fps, theme)).bg(theme.bg),
         ))
         .render(
-            Rect { x: cell.x, y: cell.y + 1, width: cell.width, height: 1 },
+            Rect {
+                x: cell.x,
+                y: cell.y + 1,
+                width: cell.width,
+                height: 1,
+            },
             buf,
         );
     }
@@ -150,7 +165,12 @@ fn render_one_device(
             theme.base(),
         ))
         .render(
-            Rect { x: cell.x, y: cell.y + 2, width: cell.width, height: 1 },
+            Rect {
+                x: cell.x,
+                y: cell.y + 2,
+                width: cell.width,
+                height: 1,
+            },
             buf,
         );
     }
@@ -175,11 +195,7 @@ fn render_single(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme)
     } else {
         state.fps_samples.iter().copied().sum::<f32>() / n_samples as f32
     };
-    let max_fps = state
-        .fps_samples
-        .iter()
-        .cloned()
-        .fold(0.0_f32, f32::max);
+    let max_fps = state.fps_samples.iter().cloned().fold(0.0_f32, f32::max);
     let real_fps = state.frames_per_sec();
     let jank_pct = state.jank_ratio() * 100.0;
 
@@ -238,7 +254,6 @@ fn render_single(inner: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme)
     Paragraph::new(Line::styled(avg_line, theme.dimmed())).render(layout[3], buf);
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -247,7 +262,9 @@ mod tests {
     #[test]
     fn sparkline_emits_one_block_per_sample_capped_to_width() {
         let mut d = VecDeque::new();
-        for i in 0..30 { d.push_back(i as f32); }
+        for i in 0..30 {
+            d.push_back(i as f32);
+        }
         let s = sparkline(&d, 30.0, 10);
         assert_eq!(s.chars().count(), 10);
         let last = s.chars().last().unwrap();
@@ -284,7 +301,9 @@ mod tests {
         render_performance(Rect::new(0, 0, 80, 12), &mut buf, &s, &Theme::TOKYO_NIGHT);
         let mut text = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            for x in 0..buf.area.width {
+                text.push_str(buf.get(x, y).symbol());
+            }
             text.push('\n');
         }
         // Each device's name header should appear once.

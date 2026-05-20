@@ -26,7 +26,10 @@ pub fn parse_track_payload(payload: &str) -> Vec<Device> {
                 _ => return None,
             };
             let (connection, ip) = if serial.contains(':') && serial.contains('.') {
-                (ConnectionKind::Wifi, serial.split(':').next().map(str::to_string))
+                (
+                    ConnectionKind::Wifi,
+                    serial.split(':').next().map(str::to_string),
+                )
             } else {
                 (ConnectionKind::Usb, None)
             };
@@ -58,9 +61,13 @@ pub fn diff_devices(prev: &HashMap<String, Device>, cur: &[Device]) -> Vec<Devic
         if !cur_map.contains_key(old_serial.as_str()) {
             let old = &prev[old_serial];
             if old.connection == ConnectionKind::Usb {
-                events.push(DeviceEvent::UsbDisconnected { serial: old_serial.clone() });
+                events.push(DeviceEvent::UsbDisconnected {
+                    serial: old_serial.clone(),
+                });
             } else {
-                events.push(DeviceEvent::Lost { serial: old_serial.clone() });
+                events.push(DeviceEvent::Lost {
+                    serial: old_serial.clone(),
+                });
             }
         }
     }
@@ -69,20 +76,28 @@ pub fn diff_devices(prev: &HashMap<String, Device>, cur: &[Device]) -> Vec<Devic
 
 async fn read_hex_len(stream: &mut TcpStream) -> anyhow::Result<usize> {
     let mut buf = [0u8; 4];
-    stream.read_exact(&mut buf).await.context("reading hex length")?;
+    stream
+        .read_exact(&mut buf)
+        .await
+        .context("reading hex length")?;
     let s = std::str::from_utf8(&buf).context("hex length is not utf8")?;
     usize::from_str_radix(s, 16).map_err(|e| anyhow!("bad hex length `{s}`: {e}"))
 }
 
 async fn read_payload(stream: &mut TcpStream, len: usize) -> anyhow::Result<String> {
     let mut buf = vec![0u8; len];
-    stream.read_exact(&mut buf).await.context("reading payload")?;
+    stream
+        .read_exact(&mut buf)
+        .await
+        .context("reading payload")?;
     String::from_utf8(buf).context("payload not utf8")
 }
 
 /// Connect to the adb server, send `host:track-devices`, and forward diffs.
 pub async fn track_devices(tx: Sender<DeviceEvent>) -> anyhow::Result<()> {
-    let mut stream = TcpStream::connect(ADB_HOST).await.context("connecting to adb server")?;
+    let mut stream = TcpStream::connect(ADB_HOST)
+        .await
+        .context("connecting to adb server")?;
     let cmd = "host:track-devices";
     let header = format!("{:04x}", cmd.len());
     stream.write_all(header.as_bytes()).await?;

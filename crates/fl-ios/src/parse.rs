@@ -17,7 +17,11 @@ pub fn parse_devicectl_json(raw: &str) -> Vec<Device> {
         Ok(v) => v,
         Err(_) => return Vec::new(),
     };
-    let devices = match v.get("result").and_then(|r| r.get("devices")).and_then(Value::as_array) {
+    let devices = match v
+        .get("result")
+        .and_then(|r| r.get("devices"))
+        .and_then(Value::as_array)
+    {
         Some(d) => d,
         None => return Vec::new(),
     };
@@ -31,7 +35,12 @@ fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
         .get("udid")
         .and_then(Value::as_str)
         .map(str::to_string)
-        .or_else(|| entry.get("identifier").and_then(Value::as_str).map(str::to_string))?;
+        .or_else(|| {
+            entry
+                .get("identifier")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+        })?;
     let dev_props = entry.get("deviceProperties")?;
     let name = dev_props.get("name").and_then(Value::as_str)?.to_string();
 
@@ -41,10 +50,16 @@ fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
         .or_else(|| dev_props.get("platform").and_then(Value::as_str))
         .unwrap_or("iOS")
         .to_ascii_lowercase();
-    let os_version = dev_props.get("osVersionNumber").and_then(Value::as_str).map(str::to_string);
+    let os_version = dev_props
+        .get("osVersionNumber")
+        .and_then(Value::as_str)
+        .map(str::to_string);
 
     let conn = entry.get("connectionProperties");
-    let connection = match conn.and_then(|c| c.get("transportType")).and_then(Value::as_str) {
+    let connection = match conn
+        .and_then(|c| c.get("transportType"))
+        .and_then(Value::as_str)
+    {
         Some("wired") => ConnectionKind::Usb,
         _ => ConnectionKind::Wifi,
     };
@@ -53,7 +68,11 @@ fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
         .and_then(Value::as_str)
         .map(|s| s == "connected")
         .unwrap_or(true);
-    let state = if tunnel_connected { DeviceState::Online } else { DeviceState::Offline };
+    let state = if tunnel_connected {
+        DeviceState::Online
+    } else {
+        DeviceState::Offline
+    };
 
     // Apple's coredevice tunnel IPv6 — this is reachable from the Mac
     // regardless of whether the cable is plugged. We use it to talk
@@ -67,7 +86,10 @@ fn parse_devicectl_entry(entry: &Value) -> Option<Device> {
     Some(Device {
         serial: udid,
         name,
-        model: hw.get("marketingName").and_then(Value::as_str).map(str::to_string),
+        model: hw
+            .get("marketingName")
+            .and_then(Value::as_str)
+            .map(str::to_string),
         connection,
         state,
         ip: tunnel_ip,
@@ -106,12 +128,21 @@ pub fn parse_simctl_json(raw: &str) -> Vec<Device> {
         let Some(arr) = list.as_array() else { continue };
         for entry in arr {
             let state = entry.get("state").and_then(Value::as_str).unwrap_or("");
-            let available = entry.get("isAvailable").and_then(Value::as_bool).unwrap_or(false);
+            let available = entry
+                .get("isAvailable")
+                .and_then(Value::as_bool)
+                .unwrap_or(false);
             if state != "Booted" || !available {
                 continue;
             }
-            let Some(udid) = entry.get("udid").and_then(Value::as_str) else { continue };
-            let name = entry.get("name").and_then(Value::as_str).unwrap_or(udid).to_string();
+            let Some(udid) = entry.get("udid").and_then(Value::as_str) else {
+                continue;
+            };
+            let name = entry
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or(udid)
+                .to_string();
             out.push(Device {
                 serial: udid.to_string(),
                 name,
@@ -240,7 +271,8 @@ mod tests {
 
     #[test]
     fn parse_simctl_json_unavailable_is_filtered() {
-        let raw = r#"{"devices":{"r":[{"udid":"x","name":"x","state":"Booted","isAvailable":false}]}}"#;
+        let raw =
+            r#"{"devices":{"r":[{"udid":"x","name":"x","state":"Booted","isAvailable":false}]}}"#;
         assert!(parse_simctl_json(raw).is_empty());
     }
 

@@ -11,14 +11,21 @@ pub fn parse_doctor_output(stdout: &str) -> Vec<DoctorEvent> {
     for raw_line in stdout.lines() {
         if let Some((status, title)) = parse_section_header(raw_line) {
             if let Some((s, t, d)) = current.take() {
-                events.push(DoctorEvent::Section { status: s, title: t, details: d });
+                events.push(DoctorEvent::Section {
+                    status: s,
+                    title: t,
+                    details: d,
+                });
             }
             current = Some((status, title, Vec::new()));
         } else if let Some((_, _, details)) = current.as_mut() {
             let trimmed = raw_line.trim_start();
             if let Some(rest) = trimmed.strip_prefix("• ") {
                 details.push(rest.to_string());
-            } else if trimmed.starts_with("✗ ") || trimmed.starts_with("✓ ") || trimmed.starts_with("! ") {
+            } else if trimmed.starts_with("✗ ")
+                || trimmed.starts_with("✓ ")
+                || trimmed.starts_with("! ")
+            {
                 details.push(trimmed.to_string());
             } else if raw_line.starts_with("    ") || raw_line.starts_with('\t') {
                 // Continuation of a previous detail. Append rather than create.
@@ -33,7 +40,11 @@ pub fn parse_doctor_output(stdout: &str) -> Vec<DoctorEvent> {
         }
     }
     if let Some((s, t, d)) = current.take() {
-        events.push(DoctorEvent::Section { status: s, title: t, details: d });
+        events.push(DoctorEvent::Section {
+            status: s,
+            title: t,
+            details: d,
+        });
     }
     events.push(DoctorEvent::Done);
     events
@@ -79,7 +90,11 @@ Doctor summary (3 issues found.)
         // 3 sections + Done = 4
         assert_eq!(evs.len(), 4);
         match &evs[0] {
-            DoctorEvent::Section { status, title, details } => {
+            DoctorEvent::Section {
+                status,
+                title,
+                details,
+            } => {
                 assert_eq!(*status, DoctorStatus::Ok);
                 assert!(title.contains("Flutter"));
                 assert_eq!(details.len(), 2);

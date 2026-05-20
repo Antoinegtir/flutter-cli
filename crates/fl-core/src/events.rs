@@ -1,7 +1,7 @@
 //! Events flowing through the application's central mpsc channel.
 
-use serde::{Deserialize, Serialize};
 use clap::ValueEnum;
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum AppEvent {
@@ -10,7 +10,10 @@ pub enum AppEvent {
     /// VM Service event, tagged with the device serial it originated from
     /// so the TUI can keep per-device perf samples (FPS, memory) when
     /// multiple devices are running in parallel.
-    Vm { serial: String, event: VmEvent },
+    Vm {
+        serial: String,
+        event: VmEvent,
+    },
     Key(KeyEvent),
     Tick,
 }
@@ -18,13 +21,30 @@ pub enum AppEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DeviceEvent {
     Discovered(Device),
-    Lost { serial: String },
-    UsbDisconnected { serial: String },
-    WifiPaired { serial: String, ip: String, port: u16 },
-    WifiReconnecting { attempt: u32 },
+    Lost {
+        serial: String,
+    },
+    UsbDisconnected {
+        serial: String,
+    },
+    WifiPaired {
+        serial: String,
+        ip: String,
+        port: u16,
+    },
+    WifiReconnecting {
+        attempt: u32,
+    },
     WifiReconnected,
-    IpChanged { serial: String, old_ip: String, new_ip: String },
-    SessionState { serial: String, state: DeviceSessionState },
+    IpChanged {
+        serial: String,
+        old_ip: String,
+        new_ip: String,
+    },
+    SessionState {
+        serial: String,
+        state: DeviceSessionState,
+    },
     /// One captured HTTP request from a running session's Dart VM,
     /// surfaced via `ext.dart.io.getHttpProfile`. The TUI's Network
     /// panel (toggled with `n`) buffers these into a scrolling list.
@@ -68,10 +88,22 @@ pub enum DeviceState {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FlutterEvent {
     DaemonReady,
-    AppStarted { app_id: String, vm_service_uri: String },
-    Log { level: LogLevel, message: String },
-    Progress { id: String, message: String, finished: bool },
-    Stopped { exit_code: Option<i32> },
+    AppStarted {
+        app_id: String,
+        vm_service_uri: String,
+    },
+    Log {
+        level: LogLevel,
+        message: String,
+    },
+    Progress {
+        id: String,
+        message: String,
+        finished: bool,
+    },
+    Stopped {
+        exit_code: Option<i32>,
+    },
     Error(String),
 }
 
@@ -91,9 +123,19 @@ pub enum VmEvent {
     Stdout(String),
     Stderr(String),
     IsolateEvent(String),
-    FrameTiming { ui_micros: u64, raster_micros: u64 },
-    GcStats { used_mb: f64, total_mb: f64 },
-    ExtensionResult { id: u64, ok: bool, error: Option<String> },
+    FrameTiming {
+        ui_micros: u64,
+        raster_micros: u64,
+    },
+    GcStats {
+        used_mb: f64,
+        total_mb: f64,
+    },
+    ExtensionResult {
+        id: u64,
+        ok: bool,
+        error: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -158,11 +200,30 @@ pub enum TestResult {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum TestEvent {
-    SuiteStart { path: String },
-    TestStarted { id: u64, name: String },
-    TestDone { id: u64, name: String, result: TestResult, duration_ms: u64 },
-    Error { id: Option<u64>, message: String, stack: Option<String> },
-    AllDone { success: bool, passed: u32, failed: u32, skipped: u32 },
+    SuiteStart {
+        path: String,
+    },
+    TestStarted {
+        id: u64,
+        name: String,
+    },
+    TestDone {
+        id: u64,
+        name: String,
+        result: TestResult,
+        duration_ms: u64,
+    },
+    Error {
+        id: Option<u64>,
+        message: String,
+        stack: Option<String>,
+    },
+    AllDone {
+        success: bool,
+        passed: u32,
+        failed: u32,
+        skipped: u32,
+    },
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -174,15 +235,24 @@ pub enum DoctorStatus {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum DoctorEvent {
-    Section { status: DoctorStatus, title: String, details: Vec<String> },
+    Section {
+        status: DoctorStatus,
+        title: String,
+        details: Vec<String>,
+    },
     Done,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CleanEvent {
     Probing,
-    Cleaning { path: String },
-    Done { freed_bytes: u64, paths: Vec<String> },
+    Cleaning {
+        path: String,
+    },
+    Done {
+        freed_bytes: u64,
+        paths: Vec<String>,
+    },
     Error(String),
 }
 
@@ -257,7 +327,11 @@ mod tests {
         let json = serde_json::to_string(&original).unwrap();
         let back: AppEvent = serde_json::from_str(&json).unwrap();
         match back {
-            AppEvent::Device(DeviceEvent::IpChanged { serial, old_ip, new_ip }) => {
+            AppEvent::Device(DeviceEvent::IpChanged {
+                serial,
+                old_ip,
+                new_ip,
+            }) => {
                 assert_eq!(serial, "1.2.3.4:5555");
                 assert_eq!(old_ip, "1.2.3.4");
                 assert_eq!(new_ip, "10.0.0.5");

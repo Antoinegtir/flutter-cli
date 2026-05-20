@@ -22,12 +22,20 @@ pub fn parse_test_line(raw: &str) -> Option<TestEvent> {
         "testStart" => {
             let t = v.get("test")?;
             let id = t.get("id").and_then(Value::as_u64)?;
-            let name = t.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let name = t
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             Some(TestEvent::TestStarted { id, name })
         }
         "testDone" => {
             let id = v.get("testID").and_then(Value::as_u64)?;
-            let name = v.get("name").and_then(Value::as_str).unwrap_or("").to_string();
+            let name = v
+                .get("name")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let result_s = v.get("result").and_then(Value::as_str).unwrap_or("");
             let result = match result_s {
                 "success" => TestResult::Success,
@@ -36,17 +44,34 @@ pub fn parse_test_line(raw: &str) -> Option<TestEvent> {
                 _ => TestResult::Skipped,
             };
             let duration_ms = v.get("time").and_then(Value::as_u64).unwrap_or(0);
-            Some(TestEvent::TestDone { id, name, result, duration_ms })
+            Some(TestEvent::TestDone {
+                id,
+                name,
+                result,
+                duration_ms,
+            })
         }
         "error" => {
             let id = v.get("testID").and_then(Value::as_u64);
-            let message = v.get("error").and_then(Value::as_str).unwrap_or("").to_string();
-            let stack = v.get("stackTrace").and_then(Value::as_str).map(str::to_string);
+            let message = v
+                .get("error")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
+            let stack = v
+                .get("stackTrace")
+                .and_then(Value::as_str)
+                .map(str::to_string);
             Some(TestEvent::Error { id, message, stack })
         }
         "done" => {
             let success = v.get("success").and_then(Value::as_bool).unwrap_or(false);
-            Some(TestEvent::AllDone { success, passed: 0, failed: 0, skipped: 0 })
+            Some(TestEvent::AllDone {
+                success,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+            })
         }
         _ => None,
     }

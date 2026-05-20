@@ -30,7 +30,10 @@ impl Theme {
         Style::default().fg(self.fg).bg(self.bg)
     }
     pub fn header(&self) -> Style {
-        Style::default().fg(self.accent).bg(self.bg).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(self.accent)
+            .bg(self.bg)
+            .add_modifier(Modifier::BOLD)
     }
     pub fn dimmed(&self) -> Style {
         Style::default().fg(self.dim).bg(self.bg)

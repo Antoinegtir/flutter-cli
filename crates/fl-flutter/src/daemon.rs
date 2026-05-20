@@ -36,8 +36,15 @@ impl FlutterDaemon {
         // the actual transport / debugserver errors and emits only the
         // generic "Connecting to the VM Service is taking longer than
         // expected" message.
-        let mut args: Vec<&str> =
-            vec!["-v", "attach", "--machine", "-d", device_id, "--debug-url", debug_url];
+        let mut args: Vec<&str> = vec![
+            "-v",
+            "attach",
+            "--machine",
+            "-d",
+            device_id,
+            "--debug-url",
+            debug_url,
+        ];
         args.extend_from_slice(extra_args);
 
         // Resolve the iOS SDK root and inject as SDKROOT. The Flutter
@@ -113,10 +120,13 @@ impl FlutterDaemon {
                     // than dumping the raw 1000-char payload to the log.
                     continue;
                 } else {
-                    tx_out.send(FlutterEvent::Log {
-                        level: fl_core::LogLevel::Debug,
-                        message: truncate_log_line(line),
-                    }).await.ok();
+                    tx_out
+                        .send(FlutterEvent::Log {
+                            level: fl_core::LogLevel::Debug,
+                            message: truncate_log_line(line),
+                        })
+                        .await
+                        .ok();
                 }
             }
         });
@@ -125,10 +135,13 @@ impl FlutterDaemon {
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                tx_err.send(FlutterEvent::Log {
-                    level: classify_stderr_line(&line),
-                    message: truncate_log_line(line),
-                }).await.ok();
+                tx_err
+                    .send(FlutterEvent::Log {
+                        level: classify_stderr_line(&line),
+                        message: truncate_log_line(line),
+                    })
+                    .await
+                    .ok();
             }
         });
 
@@ -173,7 +186,6 @@ fn truncate_log_line(mut line: String) -> String {
 }
 
 impl FlutterDaemon {
-
     /// Send `q` to the daemon to gracefully quit the running app.
     pub async fn send_quit(&mut self) -> anyhow::Result<()> {
         if let Some(stdin) = self.stdin.as_mut() {
@@ -219,11 +231,15 @@ mod tests {
     /// Use a tiny shell script as a "fake flutter" that emits a couple of daemon events then exits.
     fn write_fake_flutter(dir: &Path) -> std::path::PathBuf {
         let script = dir.join("flutter");
-        std::fs::write(&script, r#"#!/bin/sh
+        std::fs::write(
+            &script,
+            r#"#!/bin/sh
 echo '[{"event":"daemon.connected","params":{"version":"0.6.1"}}]'
 echo '[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:1/abc/ws"}}]'
 echo '[{"event":"app.stopped","params":{"exitCode":0}}]'
-"#).unwrap();
+"#,
+        )
+        .unwrap();
         use std::os::unix::fs::PermissionsExt;
         let mut perms = std::fs::metadata(&script).unwrap().permissions();
         perms.set_mode(0o755);
@@ -235,21 +251,36 @@ echo '[{"event":"app.stopped","params":{"exitCode":0}}]'
     async fn forwards_parsed_events_from_a_fake_flutter() {
         let dir = std::env::temp_dir().join(format!(
             "fl-fake-{}",
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
         let exe = write_fake_flutter(&dir);
 
         let (tx, mut rx) = mpsc::channel(16);
-        let mut daemon = FlutterDaemon::spawn(&exe, &dir, "fake-device", &[], tx).await.unwrap();
+        let mut daemon = FlutterDaemon::spawn(&exe, &dir, "fake-device", &[], tx)
+            .await
+            .unwrap();
         let _ = daemon.wait().await;
 
         let mut got = Vec::new();
-        while let Ok(ev) = tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await {
-            if let Some(ev) = ev { got.push(ev); } else { break; }
+        while let Ok(ev) =
+            tokio::time::timeout(std::time::Duration::from_millis(200), rx.recv()).await
+        {
+            if let Some(ev) = ev {
+                got.push(ev);
+            } else {
+                break;
+            }
         }
         assert!(got.iter().any(|e| matches!(e, FlutterEvent::DaemonReady)));
-        assert!(got.iter().any(|e| matches!(e, FlutterEvent::AppStarted { .. })));
-        assert!(got.iter().any(|e| matches!(e, FlutterEvent::Stopped { exit_code: Some(0) })));
+        assert!(got
+            .iter()
+            .any(|e| matches!(e, FlutterEvent::AppStarted { .. })));
+        assert!(got
+            .iter()
+            .any(|e| matches!(e, FlutterEvent::Stopped { exit_code: Some(0) })));
     }
 }

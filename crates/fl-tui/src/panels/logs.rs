@@ -50,8 +50,7 @@ fn matches_filter(line: &LogLine, needle_lower: &str) -> bool {
     if needle_lower.is_empty() {
         return true;
     }
-    level_name(line.level).contains(needle_lower)
-        || contains_ascii_ci(&line.message, needle_lower)
+    level_name(line.level).contains(needle_lower) || contains_ascii_ci(&line.message, needle_lower)
 }
 
 pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
@@ -64,10 +63,9 @@ pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme
     // key handler can clamp Up/PageUp at the oldest line instead of letting
     // the viewport collapse to a single row.
     let viewport_outer = area.height.saturating_sub(2) as usize;
-    state.log_viewport_height.store(
-        viewport_outer.max(1),
-        std::sync::atomic::Ordering::Relaxed,
-    );
+    state
+        .log_viewport_height
+        .store(viewport_outer.max(1), std::sync::atomic::Ordering::Relaxed);
 
     // Count matching logs once (cheap — no allocations).
     let n: usize = match filter_lower.as_deref() {
@@ -167,8 +165,14 @@ mod tests {
     #[test]
     fn filter_substring_reduces_visible_count() {
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(AppEvent::Flutter(FlutterEvent::Log { level: LogLevel::Info, message: "alpha".into() }));
-        s.apply(AppEvent::Flutter(FlutterEvent::Log { level: LogLevel::Info, message: "beta".into() }));
+        s.apply(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Info,
+            message: "alpha".into(),
+        }));
+        s.apply(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Info,
+            message: "beta".into(),
+        }));
         s.log_filter = Some("alp".into());
         assert_eq!(measure_visible(&s), 1);
     }
@@ -176,9 +180,18 @@ mod tests {
     #[test]
     fn filter_matches_level_name_case_insensitive() {
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(AppEvent::Flutter(FlutterEvent::Log { level: LogLevel::Debug, message: "x".into() }));
-        s.apply(AppEvent::Flutter(FlutterEvent::Log { level: LogLevel::Info,  message: "y".into() }));
-        s.apply(AppEvent::Flutter(FlutterEvent::Log { level: LogLevel::Error, message: "z".into() }));
+        s.apply(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Debug,
+            message: "x".into(),
+        }));
+        s.apply(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Info,
+            message: "y".into(),
+        }));
+        s.apply(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Error,
+            message: "z".into(),
+        }));
         s.log_filter = Some("DEBUG".into());
         assert_eq!(measure_visible(&s), 1);
         s.log_filter = Some("error".into());

@@ -9,10 +9,7 @@ use std::net::IpAddr;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
 
-pub const SERVICE_TYPES: &[&str] = &[
-    "_adb-tls-connect._tcp.local.",
-    "_adb._tcp.local.",
-];
+pub const SERVICE_TYPES: &[&str] = &["_adb-tls-connect._tcp.local.", "_adb._tcp.local."];
 
 /// Extracts the first non-loopback IPv4 from a resolved service.
 /// Returns `None` if no suitable address is present.
@@ -39,7 +36,10 @@ pub fn matches_device(info: &ServiceInfo, device_name: &str) -> bool {
 
 /// Start the mDNS browser; forward `IpDiscovered` to `reconnect_tx`.
 /// Returns the spawned task; dropping it stops the browser.
-pub fn spawn(device_name: String, reconnect_tx: Sender<ReconnectInput>) -> anyhow::Result<JoinHandle<()>> {
+pub fn spawn(
+    device_name: String,
+    reconnect_tx: Sender<ReconnectInput>,
+) -> anyhow::Result<JoinHandle<()>> {
     let daemon = ServiceDaemon::new()?;
     let mut receivers = Vec::with_capacity(SERVICE_TYPES.len());
     for svc in SERVICE_TYPES {
@@ -55,7 +55,10 @@ pub fn spawn(device_name: String, reconnect_tx: Sender<ReconnectInput>) -> anyho
                             continue;
                         }
                         if let Some(ip) = pick_ipv4(&info) {
-                            reconnect_tx.send(ReconnectInput::IpDiscovered { new_ip: ip }).await.ok();
+                            reconnect_tx
+                                .send(ReconnectInput::IpDiscovered { new_ip: ip })
+                                .await
+                                .ok();
                         }
                     }
                 }

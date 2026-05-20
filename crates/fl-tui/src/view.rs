@@ -63,5 +63,7 @@ mod tests {
     // Note: `Duration` is imported but not used directly; the import keeps consistency
     // with future tests that exercise `tick()`. Allow unused-import locally if needed.
     #[allow(dead_code)]
-    fn _unused_duration() -> Duration { Duration::from_millis(0) }
+    fn _unused_duration() -> Duration {
+        Duration::from_millis(0)
+    }
 }

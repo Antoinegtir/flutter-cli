@@ -44,13 +44,14 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     // Column layout. We compute widths up front so each cell can
     // truncate independently — saves a lot of `if w < 60` branching.
     let w = inner.width as usize;
-    let method_w = 6;       // GET / POST / PATCH / DELETE …
-    let status_w = 4;       // 200 / 404 / 500
-    let dur_w = 7;          // "  123ms"
-    let hint_w = 3;         // "  ↑↓" right-anchored on the header
-    let sep = 3 * 1;        // three single spaces between 4 columns
-    let url_w = w
-        .saturating_sub(method_w + status_w + dur_w + sep + hint_w + 2 /* slack */);
+    let method_w = 6; // GET / POST / PATCH / DELETE …
+    let status_w = 4; // 200 / 404 / 500
+    let dur_w = 7; // "  123ms"
+    let hint_w = 3; // "  ↑↓" right-anchored on the header
+    let sep = 3 * 1; // three single spaces between 4 columns
+    let url_w = w.saturating_sub(
+        method_w + status_w + dur_w + sep + hint_w + 2, /* slack */
+    );
 
     let mut lines: Vec<Line> = Vec::with_capacity(inner.height as usize);
 
@@ -60,8 +61,14 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     lines.push(Line::styled(
         format!(
             "{:<m$} {:<u$} {:>s$} {:>d$}  ↑↓",
-            "method", "url", "code", "ms",
-            m = method_w, u = url_w, s = status_w, d = dur_w
+            "method",
+            "url",
+            "code",
+            "ms",
+            m = method_w,
+            u = url_w,
+            s = status_w,
+            d = dur_w
         ),
         theme.dimmed(),
     ));
@@ -92,9 +99,15 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
             *last = Line::styled(
                 format!(
                     "{:<m$} {:<u$} {:>s$} {:>d$}  ↑↓  scroll {} (Down to follow live)",
-                    "method", "url", "code", "ms",
+                    "method",
+                    "url",
+                    "code",
+                    "ms",
                     tail_skip,
-                    m = method_w, u = url_w, s = status_w, d = dur_w,
+                    m = method_w,
+                    u = url_w,
+                    s = status_w,
+                    d = dur_w,
                 ),
                 theme.dimmed(),
             );
@@ -115,10 +128,21 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
         // their respective titles.
         let line = format!(
             "{:<m$} {:<u$} {:>s$} {:>d$}",
-            req.method, url, status_str, dur_str,
-            m = method_w, u = url_w, s = status_w, d = dur_w
+            req.method,
+            url,
+            status_str,
+            dur_str,
+            m = method_w,
+            u = url_w,
+            s = status_w,
+            d = dur_w
         );
-        lines.push(Line::styled(line, Style::default().fg(status_color(req.status, theme)).bg(theme.bg)));
+        lines.push(Line::styled(
+            line,
+            Style::default()
+                .fg(status_color(req.status, theme))
+                .bg(theme.bg),
+        ));
     }
     Paragraph::new(lines).render(inner, buf);
 }

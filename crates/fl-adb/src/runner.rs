@@ -13,7 +13,11 @@ pub struct CommandOutput {
 
 impl CommandOutput {
     pub fn ok(stdout: impl Into<String>) -> Self {
-        Self { stdout: stdout.into(), stderr: String::new(), status: 0 }
+        Self {
+            stdout: stdout.into(),
+            stderr: String::new(),
+            status: 0,
+        }
     }
 }
 
@@ -49,7 +53,9 @@ pub struct MockRunner {
 }
 
 impl MockRunner {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
     pub fn expect(&self, cmd: &str, out: CommandOutput) {
         self.responses.lock().unwrap().insert(cmd.into(), out);
     }
@@ -61,7 +67,10 @@ impl MockRunner {
 #[async_trait]
 impl CommandRunner for MockRunner {
     async fn run(&self, program: &str, args: &[&str]) -> anyhow::Result<CommandOutput> {
-        let key = std::iter::once(program).chain(args.iter().copied()).collect::<Vec<_>>().join(" ");
+        let key = std::iter::once(program)
+            .chain(args.iter().copied())
+            .collect::<Vec<_>>()
+            .join(" ");
         self.calls.lock().unwrap().push(key.clone());
         self.responses
             .lock()
@@ -79,7 +88,10 @@ mod tests {
     #[tokio::test]
     async fn mock_records_calls_and_returns_canned_output() {
         let m = MockRunner::new();
-        m.expect("adb devices -l", CommandOutput::ok("List of devices attached\n"));
+        m.expect(
+            "adb devices -l",
+            CommandOutput::ok("List of devices attached\n"),
+        );
         let out = m.run("adb", &["devices", "-l"]).await.unwrap();
         assert_eq!(out.status, 0);
         assert!(out.stdout.contains("List of devices"));

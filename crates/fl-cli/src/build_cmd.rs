@@ -18,10 +18,17 @@ pub async fn run(
 ) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
     if !project.join("pubspec.yaml").exists() {
-        return Err(anyhow!("no pubspec.yaml in {} — not a Flutter project", project.display()));
+        return Err(anyhow!(
+            "no pubspec.yaml in {} — not a Flutter project",
+            project.display()
+        ));
     }
-    let flutter = resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
-        .ok_or_else(|| anyhow!("flutter binary not found"))?;
+    let flutter = resolve_flutter(
+        None,
+        std::env::var("FLUTTER_ROOT").ok().as_deref(),
+        dirs_home(),
+    )
+    .ok_or_else(|| anyhow!("flutter binary not found"))?;
 
     let (tx, mut rx) = mpsc::channel::<fl_core::FlutterEvent>(128);
 
@@ -71,8 +78,12 @@ pub async fn run(
                 tx.send(fl_core::FlutterEvent::Log {
                     level: fl_core::LogLevel::Error,
                     message: format!("flutter build failed to start: {e:#}"),
-                }).await.ok();
-                tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) }).await.ok();
+                })
+                .await
+                .ok();
+                tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) })
+                    .await
+                    .ok();
                 return;
             }
         };
@@ -80,16 +91,24 @@ pub async fn run(
             tx.send(fl_core::FlutterEvent::Log {
                 level: fl_core::LogLevel::Error,
                 message: "flutter build: stdout pipe unavailable".into(),
-            }).await.ok();
-            tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) }).await.ok();
+            })
+            .await
+            .ok();
+            tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) })
+                .await
+                .ok();
             return;
         };
         let Some(stderr) = child.stderr.take() else {
             tx.send(fl_core::FlutterEvent::Log {
                 level: fl_core::LogLevel::Error,
                 message: "flutter build: stderr pipe unavailable".into(),
-            }).await.ok();
-            tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) }).await.ok();
+            })
+            .await
+            .ok();
+            tx.send(fl_core::FlutterEvent::Stopped { exit_code: Some(1) })
+                .await
+                .ok();
             return;
         };
 
@@ -100,10 +119,13 @@ pub async fn run(
                 if let Some(ev) = parse_daemon_line(&line) {
                     tx_out.send(ev).await.ok();
                 } else {
-                    tx_out.send(fl_core::FlutterEvent::Log {
-                        level: fl_core::LogLevel::Debug,
-                        message: line,
-                    }).await.ok();
+                    tx_out
+                        .send(fl_core::FlutterEvent::Log {
+                            level: fl_core::LogLevel::Debug,
+                            message: line,
+                        })
+                        .await
+                        .ok();
                 }
             }
         });
@@ -112,15 +134,22 @@ pub async fn run(
         tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
-                tx_err.send(fl_core::FlutterEvent::Log {
-                    level: fl_core::LogLevel::Error,
-                    message: line,
-                }).await.ok();
+                tx_err
+                    .send(fl_core::FlutterEvent::Log {
+                        level: fl_core::LogLevel::Error,
+                        message: line,
+                    })
+                    .await
+                    .ok();
             }
         });
 
         let status = child.wait().await.unwrap_or_default();
-        tx.send(fl_core::FlutterEvent::Stopped { exit_code: status.code() }).await.ok();
+        tx.send(fl_core::FlutterEvent::Stopped {
+            exit_code: status.code(),
+        })
+        .await
+        .ok();
     });
 
     if std::env::var_os("FL_HEADLESS").is_some() {

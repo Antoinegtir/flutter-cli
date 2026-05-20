@@ -41,7 +41,16 @@ async fn enrich<R: CommandRunner + ?Sized>(runner: &R, devices: &mut [Device]) {
             continue;
         }
         if let Ok(o) = runner
-            .run("adb", &["-s", &d.serial, "shell", "getprop", "ro.build.version.release"])
+            .run(
+                "adb",
+                &[
+                    "-s",
+                    &d.serial,
+                    "shell",
+                    "getprop",
+                    "ro.build.version.release",
+                ],
+            )
             .await
         {
             let v = o.stdout.trim();

@@ -12,7 +12,11 @@ const CONVENTIONAL: &[&str] = &[
     "flutter/bin/flutter",
 ];
 
-pub fn resolve_flutter(explicit: Option<&Path>, env_root: Option<&str>, home: Option<&Path>) -> Option<PathBuf> {
+pub fn resolve_flutter(
+    explicit: Option<&Path>,
+    env_root: Option<&str>,
+    home: Option<&Path>,
+) -> Option<PathBuf> {
     if let Some(p) = explicit {
         if p.exists() {
             return Some(p.to_path_buf());
@@ -114,7 +118,10 @@ mod tests {
 
     fn uuid_like() -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
-        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
         format!("{nanos:x}")
     }
 }

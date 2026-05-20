@@ -31,7 +31,9 @@ pub fn diff_devices(prev: &HashMap<String, Device>, cur: &[Device]) -> Vec<Devic
     }
     for old_serial in prev.keys() {
         if !cur_map.contains_key(old_serial.as_str()) {
-            events.push(DeviceEvent::Lost { serial: old_serial.clone() });
+            events.push(DeviceEvent::Lost {
+                serial: old_serial.clone(),
+            });
         }
     }
     events
@@ -45,7 +47,8 @@ where
     let mut prev: HashMap<String, Device> = HashMap::new();
     loop {
         let cur = list_apple_devices(&xcrun).await;
-        let cur_map: HashMap<String, Device> = cur.iter().cloned().map(|d| (d.serial.clone(), d)).collect();
+        let cur_map: HashMap<String, Device> =
+            cur.iter().cloned().map(|d| (d.serial.clone(), d)).collect();
         for ev in diff_devices(&prev, &cur) {
             tx.send(ev).await.ok();
         }
@@ -98,17 +101,21 @@ mod tests {
         let m = MockRunner::new();
         m.expect(
             "xcrun devicectl list devices --json-output -",
-            CommandOutput::ok(r#"{"result":{"devices":[{
+            CommandOutput::ok(
+                r#"{"result":{"devices":[{
                 "identifier":"H","hardwareProperties":{"udid":"P","platform":"iOS"},
                 "deviceProperties":{"name":"iPhone"},
                 "connectionProperties":{"transportType":"wired","tunnelState":"connected"}
-            }]}}"#),
+            }]}}"#,
+            ),
         );
         m.expect(
             "xcrun simctl list devices --json",
-            CommandOutput::ok(r#"{"devices":{"r":[
+            CommandOutput::ok(
+                r#"{"devices":{"r":[
                 {"udid":"S","name":"Sim","state":"Booted","isAvailable":true}
-            ]}}"#),
+            ]}}"#,
+            ),
         );
         let x = Xcrun::new(m);
         let all = list_apple_devices(&x).await;

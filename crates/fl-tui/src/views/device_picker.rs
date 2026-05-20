@@ -40,7 +40,12 @@ impl Default for DevicePickerView {
 
 impl DevicePickerView {
     pub fn new() -> Self {
-        Self { devices: Vec::new(), cursor: 0, outcome: None, quitting: false }
+        Self {
+            devices: Vec::new(),
+            cursor: 0,
+            outcome: None,
+            quitting: false,
+        }
     }
 
     pub fn with_devices(devices: Vec<Device>) -> Self {
@@ -53,7 +58,11 @@ impl DevicePickerView {
     }
 
     fn selected_serials(&self) -> Vec<String> {
-        self.devices.iter().filter(|(_, c)| *c).map(|(d, _)| d.serial.clone()).collect()
+        self.devices
+            .iter()
+            .filter(|(_, c)| *c)
+            .map(|(d, _)| d.serial.clone())
+            .collect()
     }
 }
 
@@ -63,7 +72,11 @@ impl View for DevicePickerView {
     fn apply(&mut self, input: Self::Input) {
         match input {
             DevicePickerInput::DeviceFound(d) => {
-                if !self.devices.iter().any(|(existing, _)| existing.serial == d.serial) {
+                if !self
+                    .devices
+                    .iter()
+                    .any(|(existing, _)| existing.serial == d.serial)
+                {
                     self.devices.push((d, false));
                 }
             }
@@ -110,7 +123,11 @@ impl View for DevicePickerView {
                 ConnectionKind::Usb => "USB",
             };
             let plat_raw = d.platform.as_deref().unwrap_or("");
-            let plat_label = if plat_raw == "ios-simulator" { "ios-sim" } else { plat_raw };
+            let plat_label = if plat_raw == "ios-simulator" {
+                "ios-sim"
+            } else {
+                plat_raw
+            };
             let plat_glyph = crate::panels::devices::platform_icon(plat_raw);
             let plat_field = if plat_glyph.is_empty() {
                 format!("{plat_label:<9}")
@@ -118,7 +135,10 @@ impl View for DevicePickerView {
                 format!("{plat_glyph}  {plat_label:<7}")
             };
             lines.push(Line::styled(
-                format!("{arrow}{bullet} {:<22} {plat_field} {} · {}", d.name, conn, d.serial),
+                format!(
+                    "{arrow}{bullet} {:<22} {plat_field} {} · {}",
+                    d.name, conn, d.serial
+                ),
                 if i == self.cursor {
                     Style::default().fg(theme.accent).bg(theme.bg)
                 } else {
@@ -127,7 +147,10 @@ impl View for DevicePickerView {
             ));
         }
         if self.devices.is_empty() {
-            lines.push(Line::styled("(awaiting devices…)".to_string(), theme.dimmed()));
+            lines.push(Line::styled(
+                "(awaiting devices…)".to_string(),
+                theme.dimmed(),
+            ));
         }
         lines.push(Line::styled("".to_string(), theme.dimmed()));
         lines.push(Line::styled(
@@ -155,7 +178,9 @@ impl View for DevicePickerView {
         }
     }
     fn tick(&mut self, _dt: Duration) {}
-    fn quitting(&self) -> bool { self.quitting }
+    fn quitting(&self) -> bool {
+        self.quitting
+    }
 }
 
 #[cfg(test)]
@@ -206,7 +231,10 @@ mod tests {
         let mut v = DevicePickerView::with_devices(vec![dev("A"), dev("B")]);
         v.apply(DevicePickerInput::Toggle(0));
         v.apply(DevicePickerInput::Confirm);
-        assert_eq!(v.outcome, Some(DevicePickerOutcome::Picked(vec!["A".into()])));
+        assert_eq!(
+            v.outcome,
+            Some(DevicePickerOutcome::Picked(vec!["A".into()]))
+        );
         assert!(v.quitting);
     }
 
@@ -256,7 +284,9 @@ mod tests {
         v.render(Rect::new(0, 0, 80, 6), &mut buf, &Theme::TOKYO_NIGHT);
         let mut text = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            for x in 0..buf.area.width {
+                text.push_str(buf.get(x, y).symbol());
+            }
             text.push('\n');
         }
         assert!(text.contains("ios"), "missing platform tag, got:\n{text}");

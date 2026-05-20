@@ -64,10 +64,7 @@ fn headless_nominal_emits_app_started_and_stop() {
         out.contains("AppStarted"),
         "missing AppStarted in output:\n{out}"
     );
-    assert!(
-        out.contains("Stopped"),
-        "missing Stopped in output:\n{out}"
-    );
+    assert!(out.contains("Stopped"), "missing Stopped in output:\n{out}");
 }
 
 #[test]
@@ -87,9 +84,18 @@ fn headless_wifi_drop_emits_reconnecting_and_reconnected() {
     // Clean any leftover state from prior runs of the faux adb.
     let _ = std::fs::remove_dir_all("/tmp/fl-fake-adb");
 
-    let exe = workspace_root().join("target/debug/flutter-cli").canonicalize().expect("flutter-cli binary built");
-    let fixture_bin = fixtures().join("bin").canonicalize().expect("fixtures bin dir");
-    let scenario_path = fixtures().join("scenarios/wifi_drop.txt").canonicalize().expect("scenario file");
+    let exe = workspace_root()
+        .join("target/debug/flutter-cli")
+        .canonicalize()
+        .expect("flutter-cli binary built");
+    let fixture_bin = fixtures()
+        .join("bin")
+        .canonicalize()
+        .expect("fixtures bin dir");
+    let scenario_path = fixtures()
+        .join("scenarios/wifi_drop.txt")
+        .canonicalize()
+        .expect("scenario file");
 
     let path = format!(
         "{}:{}",
@@ -112,12 +118,18 @@ fn headless_wifi_drop_emits_reconnecting_and_reconnected() {
         .expect("spawn fl");
 
     let stdout = String::from_utf8_lossy(&out.stdout).into_owned();
-    assert!(stdout.contains("AppStarted"), "missing AppStarted:\n{stdout}");
+    assert!(
+        stdout.contains("AppStarted"),
+        "missing AppStarted:\n{stdout}"
+    );
     assert!(stdout.contains("Stopped"), "missing Stopped:\n{stdout}");
 }
 
 fn run_fl_with_env(args: &[&str], envs: &[(&str, &std::path::Path)]) -> String {
-    let exe = workspace_root().join("target/debug/flutter-cli").canonicalize().expect("fl built");
+    let exe = workspace_root()
+        .join("target/debug/flutter-cli")
+        .canonicalize()
+        .expect("fl built");
     let fixture_bin = fixtures().join("bin").canonicalize().expect("fixtures bin");
     let path = format!(
         "{}:{}",
@@ -125,11 +137,16 @@ fn run_fl_with_env(args: &[&str], envs: &[(&str, &std::path::Path)]) -> String {
         std::env::var("PATH").unwrap_or_default()
     );
     let mut cmd = Command::new(&exe);
-    cmd.args(args).env("PATH", path).env("FL_HEADLESS", "1").env_remove("FLUTTER_ROOT");
+    cmd.args(args)
+        .env("PATH", path)
+        .env("FL_HEADLESS", "1")
+        .env_remove("FLUTTER_ROOT");
     for (k, p) in envs {
         cmd.env(k, p.canonicalize().expect("env path"));
     }
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    cmd.stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let out = cmd.output().expect("spawn fl");
     String::from_utf8_lossy(&out.stdout).into_owned()
 }
@@ -185,10 +202,14 @@ fn headless_multi_device_emits_two_app_started() {
     let out = run_fl_with_env(
         &[
             "run",
-            "--no-picker", "--no-wifi",
-            "--device", "DEV1",
-            "--device", "DEV2",
-            "--project", pubspec.to_str().unwrap(),
+            "--no-picker",
+            "--no-wifi",
+            "--device",
+            "DEV1",
+            "--device",
+            "DEV2",
+            "--project",
+            pubspec.to_str().unwrap(),
         ],
         &[
             ("FL_ADB_FIXTURE_DEVICES", &devices_file),
@@ -196,7 +217,10 @@ fn headless_multi_device_emits_two_app_started() {
         ],
     );
     let starts = out.matches("AppStarted").count();
-    assert!(starts >= 2, "expected ≥ 2 AppStarted events, output:\n{out}");
+    assert!(
+        starts >= 2,
+        "expected ≥ 2 AppStarted events, output:\n{out}"
+    );
 }
 
 #[test]
@@ -215,9 +239,12 @@ fn headless_ios_run_emits_app_started() {
     let out = run_fl_with_env(
         &[
             "run",
-            "--no-picker", "--no-wifi",
-            "--device", "00008140-0011002233",
-            "--project", pubspec.to_str().unwrap(),
+            "--no-picker",
+            "--no-wifi",
+            "--device",
+            "00008140-0011002233",
+            "--project",
+            pubspec.to_str().unwrap(),
         ],
         &[
             ("FL_ADB_FIXTURE_DEVICES", &empty_adb),
@@ -225,6 +252,12 @@ fn headless_ios_run_emits_app_started() {
             ("FL_FLUTTER_SCENARIO", &flutter_scenario),
         ],
     );
-    assert!(out.contains("AppStarted"), "missing AppStarted, output:\n{out}");
-    assert!(!out.contains("pre-pair failed"), "iOS device wrongly triggered pre-pair:\n{out}");
+    assert!(
+        out.contains("AppStarted"),
+        "missing AppStarted, output:\n{out}"
+    );
+    assert!(
+        !out.contains("pre-pair failed"),
+        "iOS device wrongly triggered pre-pair:\n{out}"
+    );
 }

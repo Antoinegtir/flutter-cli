@@ -7,8 +7,7 @@
 use anyhow::anyhow;
 use fl_adb::{parse_devices_l, pre_pair_wifi, track_devices, CommandRunner, TokioRunner};
 use fl_core::{
-    AppEvent, BuildMode, DeviceEvent, DeviceSessionState, FlutterEvent, KeyEvent as FlKey,
-    LogLevel,
+    AppEvent, BuildMode, DeviceEvent, DeviceSessionState, FlutterEvent, KeyEvent as FlKey, LogLevel,
 };
 use fl_flutter::{resolve_flutter, FlutterDaemon};
 use fl_tui::{AppState, TuiRunner};
@@ -132,11 +131,14 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let final_target = if let (Some(usb), false) = (usb_serial_to_pair.as_deref(), no_wifi) {
         match pre_pair_wifi(runner.as_ref(), usb, 5555).await {
             Ok(t) => {
-                event_tx.send(AppEvent::Device(DeviceEvent::WifiPaired {
-                    serial: usb.into(),
-                    ip: t.ip.clone(),
-                    port: t.port,
-                })).await.ok();
+                event_tx
+                    .send(AppEvent::Device(DeviceEvent::WifiPaired {
+                        serial: usb.into(),
+                        ip: t.ip.clone(),
+                        port: t.port,
+                    }))
+                    .await
+                    .ok();
                 t.serial()
             }
             Err(e) => {
@@ -145,9 +147,12 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                 } else {
                     String::new()
                 };
-                event_tx.send(AppEvent::Device(DeviceEvent::Error(
-                    format!("{pfx}pre-pair failed: {e}"),
-                ))).await.ok();
+                event_tx
+                    .send(AppEvent::Device(DeviceEvent::Error(format!(
+                        "{pfx}pre-pair failed: {e}"
+                    ))))
+                    .await
+                    .ok();
                 serial_to_run.clone()
             }
         }
@@ -205,7 +210,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let devtools_slot = session.devtools_uri.clone();
     let daemon_slot = session.daemon.clone();
     let _ = vm_mdns_cache; // No longer used — Wi-Fi takeover removed.
-    // Captured for the auto-respawn on USB replug.
+                           // Captured for the auto-respawn on USB replug.
     let flutter_for_respawn = flutter.to_path_buf();
     let project_for_respawn = project.to_path_buf();
     let mode_for_respawn = mode;
@@ -261,12 +266,18 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                             message: format!("{short_for_logs}{message}"),
                         }
                     }
-                    FlutterEvent::AppStarted { ref app_id, ref vm_service_uri } => {
+                    FlutterEvent::AppStarted {
+                        ref app_id,
+                        ref vm_service_uri,
+                    } => {
                         ever_started = true;
-                        event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
-                            serial: serial_for_state.clone(),
-                            state: DeviceSessionState::Ready,
-                        })).await.ok();
+                        event_tx_logs
+                            .send(AppEvent::Device(DeviceEvent::SessionState {
+                                serial: serial_for_state.clone(),
+                                state: DeviceSessionState::Ready,
+                            }))
+                            .await
+                            .ok();
                         // Emit a green "✓ compiled" line ONCE per
                         // session — `log_style_for` in fl-tui sees
                         // the `✓` and upgrades the line to
@@ -280,10 +291,13 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                             } else {
                                 format!("{short_for_logs}✓ compiled and launched")
                             };
-                            event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                                level: LogLevel::Info,
-                                message: compiled_msg,
-                            })).await.ok();
+                            event_tx_logs
+                                .send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Info,
+                                    message: compiled_msg,
+                                }))
+                                .await
+                                .ok();
                         }
                         if !app_id.is_empty() {
                             *app_id_slot.lock().await = Some(app_id.clone());
@@ -302,10 +316,13 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                         ev
                     }
                     FlutterEvent::Stopped { .. } => {
-                        event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
-                            serial: serial_for_state.clone(),
-                            state: DeviceSessionState::Stopped,
-                        })).await.ok();
+                        event_tx_logs
+                            .send(AppEvent::Device(DeviceEvent::SessionState {
+                                serial: serial_for_state.clone(),
+                                state: DeviceSessionState::Stopped,
+                            }))
+                            .await
+                            .ok();
                         ev
                     }
                     other => other,
@@ -316,18 +333,24 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             // Daemon channel closed. Decide whether to recover or
             // give up before falling into the iOS USB replug poll.
             if !ever_started {
-                event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Error,
-                    message: format!(
-                        "{short_for_logs}flutter run exited before the app started — \
-                         not a USB unplug, no recovery to do."
-                    ),
-                })).await.ok();
-                for line in last_logs.iter().rev().take(3) {
-                    event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
+                event_tx_logs
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
                         level: LogLevel::Error,
-                        message: format!("{short_for_logs}  ↳ {line}"),
-                    })).await.ok();
+                        message: format!(
+                            "{short_for_logs}flutter run exited before the app started — \
+                         not a USB unplug, no recovery to do."
+                        ),
+                    }))
+                    .await
+                    .ok();
+                for line in last_logs.iter().rev().take(3) {
+                    event_tx_logs
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Error,
+                            message: format!("{short_for_logs}  ↳ {line}"),
+                        }))
+                        .await
+                        .ok();
                 }
                 event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
                     level: LogLevel::Info,
@@ -339,14 +362,17 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             death_history.retain(|t| now.duration_since(*t) < std::time::Duration::from_secs(30));
             death_history.push(now);
             if death_history.len() >= 3 {
-                event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Error,
-                    message: format!(
-                        "{short_for_logs}daemon died 3 times in 30s — giving up. \
+                event_tx_logs
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Error,
+                        message: format!(
+                            "{short_for_logs}daemon died 3 times in 30s — giving up. \
                          Likely a Flutter SDK / project issue, not a USB unplug. \
                          Try `flutter clean` and look at the errors above."
-                    ),
-                })).await.ok();
+                        ),
+                    }))
+                    .await
+                    .ok();
                 return;
             }
 
@@ -362,17 +388,23 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             *daemon_slot.lock().await = None;
             *vm_client_slot.lock().await = None;
             *isolate_slot.lock().await = None;
-            event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
-                serial: serial_for_state.clone(),
-                state: DeviceSessionState::Stopped,
-            })).await.ok();
-            event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                level: LogLevel::Warn,
-                message: format!(
-                    "{short_for_logs}USB session ended — replug the cable to resume \
+            event_tx_logs
+                .send(AppEvent::Device(DeviceEvent::SessionState {
+                    serial: serial_for_state.clone(),
+                    state: DeviceSessionState::Stopped,
+                }))
+                .await
+                .ok();
+            event_tx_logs
+                .send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Warn,
+                    message: format!(
+                        "{short_for_logs}USB session ended — replug the cable to resume \
                      (keeping TUI alive; logs scrollable with ↑/↓)"
-                ),
-            })).await.ok();
+                    ),
+                }))
+                .await
+                .ok();
 
             // Wait for the same UDID to reappear over USB. We poll
             // devicectl rather than subscribing to the device event
@@ -388,20 +420,26 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                         && matches!(d.state, fl_core::DeviceState::Online)
                 });
                 if back_on_usb {
-                    event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Info,
-                        message: format!(
-                            "{short_for_logs}🔌 USB reconnected — relaunching app on device"
-                        ),
-                    })).await.ok();
+                    event_tx_logs
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Info,
+                            message: format!(
+                                "{short_for_logs}🔌 USB reconnected — relaunching app on device"
+                            ),
+                        }))
+                        .await
+                        .ok();
                     break;
                 }
                 if last_state_logged != Some(false) {
                     last_state_logged = Some(false);
-                    event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Debug,
-                        message: format!("{short_for_logs}waiting for USB cable…"),
-                    })).await.ok();
+                    event_tx_logs
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Debug,
+                            message: format!("{short_for_logs}waiting for USB cable…"),
+                        }))
+                        .await
+                        .ok();
                 }
                 // 3 s is the sweet spot between "feels responsive when
                 // the user replugs" and "doesn't burn CPU re-parsing
@@ -444,16 +482,22 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             {
                 Ok(d) => {
                     *daemon_slot.lock().await = Some(d);
-                    event_tx_logs.send(AppEvent::Device(DeviceEvent::SessionState {
-                        serial: serial_for_state.clone(),
-                        state: DeviceSessionState::Connecting,
-                    })).await.ok();
+                    event_tx_logs
+                        .send(AppEvent::Device(DeviceEvent::SessionState {
+                            serial: serial_for_state.clone(),
+                            state: DeviceSessionState::Connecting,
+                        }))
+                        .await
+                        .ok();
                 }
                 Err(e) => {
-                    event_tx_logs.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Error,
-                        message: format!("{short_for_logs}respawn failed: {e} — session ended"),
-                    })).await.ok();
+                    event_tx_logs
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Error,
+                            message: format!("{short_for_logs}respawn failed: {e} — session ended"),
+                        }))
+                        .await
+                        .ok();
                     return;
                 }
             }
@@ -462,7 +506,6 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
 
     Ok(session)
 }
-
 
 /// Kill orphan `iproxy` (libusbmuxd port forwarder) processes left over
 /// from previous Flutter daemons that died abruptly. Each `flutter run`
@@ -507,7 +550,10 @@ fn connect_vm_service(
         tokio::spawn(async move {
             while let Some(ev) = vm_rx.recv().await {
                 event_tx_bridge
-                    .send(AppEvent::Vm { serial: serial_for_bridge.clone(), event: ev })
+                    .send(AppEvent::Vm {
+                        serial: serial_for_bridge.clone(),
+                        event: ev,
+                    })
                     .await
                     .ok();
             }
@@ -516,10 +562,13 @@ fn connect_vm_service(
         let client = match VmServiceClient::connect(&uri, vm_tx).await {
             Ok(c) => c,
             Err(e) => {
-                event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Warn,
-                    message: format!("{short_name}VM Service connect failed: {e}"),
-                })).await.ok();
+                event_tx
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Warn,
+                        message: format!("{short_name}VM Service connect failed: {e}"),
+                    }))
+                    .await
+                    .ok();
                 return;
             }
         };
@@ -543,10 +592,13 @@ fn connect_vm_service(
         if let Some(id) = isolate_id {
             *isolate_slot.lock().await = Some(id.clone());
             *client_slot.lock().await = Some(client.clone());
-            event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                level: LogLevel::Info,
-                message: format!("{short_name}VM Service ready"),
-            })).await.ok();
+            event_tx
+                .send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Info,
+                    message: format!("{short_name}VM Service ready"),
+                }))
+                .await
+                .ok();
             // Memory usage is pull-only on the VM Service — poll once a
             // second and synthesize `VmEvent::GcStats` so the Performance
             // panel's memory line actually moves. We refresh the isolate
@@ -559,8 +611,7 @@ fn connect_vm_service(
             let mem_serial = serial.clone();
             let mem_short = short_name.clone();
             tokio::spawn(async move {
-                let mut ticker =
-                    tokio::time::interval(std::time::Duration::from_secs(1));
+                let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut consecutive_failures: u32 = 0;
                 // Track the first successful poll so we can log it once
@@ -576,12 +627,15 @@ fn connect_vm_service(
                         Err(e) => {
                             consecutive_failures += 1;
                             if consecutive_failures == 5 {
-                                mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                                    level: LogLevel::Debug,
-                                    message: format!(
-                                        "{mem_short}memory poll: getVM/isolate failed ({e})"
-                                    ),
-                                })).await.ok();
+                                mem_tx
+                                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                                        level: LogLevel::Debug,
+                                        message: format!(
+                                            "{mem_short}memory poll: getVM/isolate failed ({e})"
+                                        ),
+                                    }))
+                                    .await
+                                    .ok();
                             }
                             if consecutive_failures > 60 {
                                 break; // VM unreachable for a minute → give up.
@@ -632,12 +686,13 @@ fn connect_vm_service(
                         Err(e) => {
                             consecutive_failures += 1;
                             if consecutive_failures == 5 {
-                                mem_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                                    level: LogLevel::Warn,
-                                    message: format!(
-                                        "{mem_short}memory poll failed: {e}"
-                                    ),
-                                })).await.ok();
+                                mem_tx
+                                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                                        level: LogLevel::Warn,
+                                        message: format!("{mem_short}memory poll failed: {e}"),
+                                    }))
+                                    .await
+                                    .ok();
                             }
                             if consecutive_failures > 60 {
                                 break;
@@ -721,12 +776,15 @@ fn connect_vm_service(
                         Err(e) => {
                             if !logged_first_error {
                                 logged_first_error = true;
-                                net_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                                    level: LogLevel::Debug,
-                                    message: format!(
-                                        "{net_short}network poll: {e} (will keep retrying)"
-                                    ),
-                                })).await.ok();
+                                net_tx
+                                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                                        level: LogLevel::Debug,
+                                        message: format!(
+                                            "{net_short}network poll: {e} (will keep retrying)"
+                                        ),
+                                    }))
+                                    .await
+                                    .ok();
                             }
                             consecutive_failures += 1;
                             if consecutive_failures > 60 {
@@ -753,19 +811,19 @@ fn connect_vm_service(
                             .as_object()
                             .map(|m| m.keys().cloned().collect())
                             .unwrap_or_default();
-                        net_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                            level: LogLevel::Debug,
-                            message: format!(
-                                "{net_short}🌐 network poll OK — keys={keys:?} requests={}",
-                                requests.len()
-                            ),
-                        })).await.ok();
+                        net_tx
+                            .send(AppEvent::Flutter(FlutterEvent::Log {
+                                level: LogLevel::Debug,
+                                message: format!(
+                                    "{net_short}🌐 network poll OK — keys={keys:?} requests={}",
+                                    requests.len()
+                                ),
+                            }))
+                            .await
+                            .ok();
                     }
                     for r in requests {
-                        let id = r
-                            .get("id")
-                            .map(|v| v.to_string())
-                            .unwrap_or_default();
+                        let id = r.get("id").map(|v| v.to_string()).unwrap_or_default();
                         if id.is_empty() || seen.contains(&id) {
                             continue;
                         }
@@ -819,8 +877,7 @@ fn connect_vm_service(
                             .get("endTime")
                             .and_then(serde_json::Value::as_u64)
                             .unwrap_or(start_us);
-                        let duration_ms =
-                            ((end_us.saturating_sub(start_us)) / 1000) as u64;
+                        let duration_ms = ((end_us.saturating_sub(start_us)) / 1000) as u64;
                         net_tx
                             .send(AppEvent::Device(fl_core::DeviceEvent::HttpRequest {
                                 device: net_short.clone(),
@@ -835,10 +892,13 @@ fn connect_vm_service(
                 }
             });
         } else {
-            event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                level: LogLevel::Warn,
-                message: format!("{short_name}VM Service: no isolate found after 10s"),
-            })).await.ok();
+            event_tx
+                .send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Warn,
+                    message: format!("{short_name}VM Service: no isolate found after 10s"),
+                }))
+                .await
+                .ok();
         }
     });
 }
@@ -886,17 +946,26 @@ pub async fn broadcast_key(
                         match d.send_app_restart(&app_id, full).await {
                             Ok(()) => {
                                 let kind = if full { "restart" } else { "reload" };
-                                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                                    level: LogLevel::Info,
-                                    message: format!("[{short}] {kind} requested"),
-                                })).await.ok();
+                                events
+                                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                                        level: LogLevel::Info,
+                                        message: format!("[{short}] {kind} requested"),
+                                    }))
+                                    .await
+                                    .ok();
                                 true
                             }
                             Err(_) => false, // Pipe broken → daemon died mid-flight.
                         }
-                    } else { false }
-                } else { false }
-            } else { false };
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            } else {
+                false
+            };
 
             if daemon_succeeded {
                 continue;
@@ -904,37 +973,51 @@ pub async fn broadcast_key(
 
             // Daemon-less path: VM Service for hot reload, error for restart.
             if full {
-                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Warn,
-                    message: format!(
-                        "[{short}] hot restart unavailable after USB unplug — \
+                events
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Warn,
+                        message: format!(
+                            "[{short}] hot restart unavailable after USB unplug — \
                          use `r` for hot reload or relaunch with `fl run`"
-                    ),
-                })).await.ok();
+                        ),
+                    }))
+                    .await
+                    .ok();
                 continue;
             }
 
             let vm = s.vm_client.lock().await.clone();
             let iso = s.isolate_id.lock().await.clone();
             let (Some(client), Some(iso)) = (vm, iso) else {
-                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Warn,
-                    message: format!("[{short}] no VM Service yet, can't reload"),
-                })).await.ok();
+                events
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Warn,
+                        message: format!("[{short}] no VM Service yet, can't reload"),
+                    }))
+                    .await
+                    .ok();
                 continue;
             };
             match client.hot_reload(&iso).await {
                 Ok(_) => {
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Info,
-                        message: format!("[{short}] reload requested (via VM Service over tunnel)"),
-                    })).await.ok();
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Info,
+                            message: format!(
+                                "[{short}] reload requested (via VM Service over tunnel)"
+                            ),
+                        }))
+                        .await
+                        .ok();
                 }
                 Err(e) => {
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Error,
-                        message: format!("[{short}] reload failed: {e:#}"),
-                    })).await.ok();
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Error,
+                            message: format!("[{short}] reload failed: {e:#}"),
+                        }))
+                        .await
+                        .ok();
                 }
             }
         }
@@ -968,10 +1051,16 @@ pub async fn broadcast_key(
                 if let Some(cached) = s.isolate_id.lock().await.clone() {
                     cached
                 } else {
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Warn,
-                        message: format!("[{}] no live isolate — ignoring {:?}", s.short_name, key),
-                    })).await.ok();
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Warn,
+                            message: format!(
+                                "[{}] no live isolate — ignoring {:?}",
+                                s.short_name, key
+                            ),
+                        }))
+                        .await
+                        .ok();
                     continue;
                 }
             }
@@ -983,7 +1072,11 @@ pub async fn broadcast_key(
                 FlKey::Char('b') => client.set_brightness(&iso, brightness_value).await,
                 FlKey::Char('p') => client.toggle_debug_paint(&iso, paint_on).await,
                 FlKey::Char('o') => client.toggle_platform(&iso, platform_is_ios).await,
-                FlKey::Char('P') => client.toggle_performance_overlay(&iso, perf_overlay_on).await,
+                FlKey::Char('P') => {
+                    client
+                        .toggle_performance_overlay(&iso, perf_overlay_on)
+                        .await
+                }
                 _ => return None,
             };
             Some((short, res))
@@ -999,10 +1092,8 @@ pub async fn broadcast_key(
                 // replaced (e.g. after a hot restart). That's effectively a
                 // failure: nothing on the device acted on the call. Treat
                 // it as such instead of celebrating with an "OK" line.
-                let is_sentinel = value
-                    .get("type")
-                    .and_then(serde_json::Value::as_str)
-                    == Some("Sentinel");
+                let is_sentinel =
+                    value.get("type").and_then(serde_json::Value::as_str) == Some("Sentinel");
                 if is_sentinel {
                     let label = match key {
                         FlKey::Char('b') => "Theme",
@@ -1011,13 +1102,16 @@ pub async fn broadcast_key(
                         FlKey::Char('P') => "Performance overlay",
                         _ => "Extension",
                     };
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Warn,
-                        message: format!(
-                            "[{short}] {label}: isolate was collected (likely after hot \
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Warn,
+                            message: format!(
+                                "[{short}] {label}: isolate was collected (likely after hot \
                              restart) — try the key again to re-target the new isolate"
-                        ),
-                    })).await.ok();
+                            ),
+                        }))
+                        .await
+                        .ok();
                 } else {
                     // Translate each extension's structured response into a
                     // single human-readable status line. The raw JSON
@@ -1025,17 +1119,23 @@ pub async fn broadcast_key(
                     // is useless to the user — show what actually changed
                     // on the device instead.
                     let pretty = pretty_status(key, &value);
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Info,
-                        message: format!("[{short}] {pretty}"),
-                    })).await.ok();
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Info,
+                            message: format!("[{short}] {pretty}"),
+                        }))
+                        .await
+                        .ok();
                 }
             }
             Err(e) => {
-                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Error,
-                    message: format!("[{short}] {key:?} -> {e}"),
-                })).await.ok();
+                events
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Error,
+                        message: format!("[{short}] {key:?} -> {e}"),
+                    }))
+                    .await
+                    .ok();
             }
         }
     }
@@ -1046,7 +1146,10 @@ pub async fn broadcast_key(
 fn pretty_status(key: FlKey, value: &serde_json::Value) -> String {
     match key {
         FlKey::Char('b') => {
-            let raw = value.get("value").and_then(serde_json::Value::as_str).unwrap_or("");
+            let raw = value
+                .get("value")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
             let label = match raw {
                 "Brightness.light" => "☀️ Theme → Light",
                 "Brightness.dark" => "🌙 Theme → Dark",
@@ -1079,7 +1182,10 @@ fn pretty_status(key: FlKey, value: &serde_json::Value) -> String {
             }
         }
         FlKey::Char('o') => {
-            let raw = value.get("value").and_then(serde_json::Value::as_str).unwrap_or("");
+            let raw = value
+                .get("value")
+                .and_then(serde_json::Value::as_str)
+                .unwrap_or("");
             match raw {
                 "iOS" => "🍎 Platform override → iOS (Cupertino widgets)".into(),
                 "android" => "🤖 Platform override → Android (Material widgets)".into(),
@@ -1102,8 +1208,12 @@ fn compact_json(v: &serde_json::Value) -> String {
 }
 
 pub fn resolve_flutter_path() -> anyhow::Result<PathBuf> {
-    resolve_flutter(None, std::env::var("FLUTTER_ROOT").ok().as_deref(), dirs_home())
-        .ok_or_else(|| anyhow!("flutter binary not found"))
+    resolve_flutter(
+        None,
+        std::env::var("FLUTTER_ROOT").ok().as_deref(),
+        dirs_home(),
+    )
+    .ok_or_else(|| anyhow!("flutter binary not found"))
 }
 
 /// Render a `BuildMode` as the lowercase label shown in the dashboard
@@ -1121,20 +1231,20 @@ fn mode_label(m: BuildMode) -> &'static str {
 /// dump PNGs into `screenshots/<timestamp>/<device>.png`, report
 /// per-device success/failure as Flutter log lines, finish with a
 /// summary line.
-async fn capture_all_screenshots(
-    sessions: &[DeviceSession],
-    events: &mpsc::Sender<AppEvent>,
-) {
+async fn capture_all_screenshots(sessions: &[DeviceSession], events: &mpsc::Sender<AppEvent>) {
     if sessions.is_empty() {
         return;
     }
     let stamp = chrono::Local::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let dir = PathBuf::from("screenshots").join(&stamp);
     if let Err(e) = std::fs::create_dir_all(&dir) {
-        events.send(AppEvent::Flutter(FlutterEvent::Log {
-            level: LogLevel::Error,
-            message: format!("📸 cannot create {}: {e}", dir.display()),
-        })).await.ok();
+        events
+            .send(AppEvent::Flutter(FlutterEvent::Log {
+                level: LogLevel::Error,
+                message: format!("📸 cannot create {}: {e}", dir.display()),
+            }))
+            .await
+            .ok();
         return;
     }
 
@@ -1151,28 +1261,45 @@ async fn capture_all_screenshots(
             let path = dir.join(&filename);
             match capture_one(&serial, &path, vm_client.as_ref()).await {
                 Ok(method) => {
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Info,
-                        message: format!("[{short}] 📸 saved {} ({method})", path.display()),
-                    })).await.ok();
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Info,
+                            message: format!("[{short}] 📸 saved {} ({method})", path.display()),
+                        }))
+                        .await
+                        .ok();
                     true
                 }
                 Err(e) => {
-                    events.send(AppEvent::Flutter(FlutterEvent::Log {
-                        level: LogLevel::Warn,
-                        message: format!("[{short}] 📸 screenshot failed: {e}"),
-                    })).await.ok();
+                    events
+                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                            level: LogLevel::Warn,
+                            message: format!("[{short}] 📸 screenshot failed: {e}"),
+                        }))
+                        .await
+                        .ok();
                     false
                 }
             }
         }));
     }
     let results = futures_util::future::join_all(tasks).await;
-    let ok = results.into_iter().filter_map(|r| r.ok()).filter(|b| *b).count();
-    events.send(AppEvent::Flutter(FlutterEvent::Log {
-        level: LogLevel::Info,
-        message: format!("📸 {ok}/{} screenshots in {}", sessions.len(), dir.display()),
-    })).await.ok();
+    let ok = results
+        .into_iter()
+        .filter_map(|r| r.ok())
+        .filter(|b| *b)
+        .count();
+    events
+        .send(AppEvent::Flutter(FlutterEvent::Log {
+            level: LogLevel::Info,
+            message: format!(
+                "📸 {ok}/{} screenshots in {}",
+                sessions.len(),
+                dir.display()
+            ),
+        }))
+        .await
+        .ok();
 }
 
 /// Try every screenshot strategy in priority order. CRITICAL: every
@@ -1192,8 +1319,7 @@ async fn capture_one(
     // 0. VM Service screenshot RPC — fastest, zero deps.
     if let Some(client) = vm_client {
         if let Ok(bytes) = client.screenshot_png().await {
-            std::fs::write(path, &bytes)
-                .map_err(|e| anyhow!("write {}: {e}", path.display()))?;
+            std::fs::write(path, &bytes).map_err(|e| anyhow!("write {}: {e}", path.display()))?;
             return Ok("vmservice");
         }
     }
@@ -1281,11 +1407,12 @@ fn sanitize_filename(name: &str) -> String {
 /// `xdg-open`. Sessions whose URL hasn't been captured yet (the
 /// daemon hasn't emitted `app.devTools: …` — still building, VM
 /// Service not up) get a friendly warn instead of a silent no-op.
-async fn open_devtools_all(
-    sessions: &[DeviceSession],
-    events: &mpsc::Sender<AppEvent>,
-) {
-    let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
+async fn open_devtools_all(sessions: &[DeviceSession], events: &mpsc::Sender<AppEvent>) {
+    let opener = if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
     let mut opened = 0;
     let mut missing = 0;
     for s in sessions {
@@ -1302,35 +1429,50 @@ async fn open_devtools_all(
                 {
                     Ok(st) if st.success() => {
                         opened += 1;
-                        events.send(AppEvent::Flutter(FlutterEvent::Log {
-                            level: LogLevel::Info,
-                            message: format!("[{short}] 🔧 DevTools opened in browser"),
-                        })).await.ok();
+                        events
+                            .send(AppEvent::Flutter(FlutterEvent::Log {
+                                level: LogLevel::Info,
+                                message: format!("[{short}] 🔧 DevTools opened in browser"),
+                            }))
+                            .await
+                            .ok();
                     }
                     _ => {
-                        events.send(AppEvent::Flutter(FlutterEvent::Log {
-                            level: LogLevel::Warn,
-                            message: format!("[{short}] couldn't run `{opener}` — DevTools: {u}"),
-                        })).await.ok();
+                        events
+                            .send(AppEvent::Flutter(FlutterEvent::Log {
+                                level: LogLevel::Warn,
+                                message: format!(
+                                    "[{short}] couldn't run `{opener}` — DevTools: {u}"
+                                ),
+                            }))
+                            .await
+                            .ok();
                     }
                 }
             }
             None => {
                 missing += 1;
-                events.send(AppEvent::Flutter(FlutterEvent::Log {
-                    level: LogLevel::Warn,
-                    message: format!(
-                        "[{short}] DevTools not ready yet — still building / VM Service not up"
-                    ),
-                })).await.ok();
+                events
+                    .send(AppEvent::Flutter(FlutterEvent::Log {
+                        level: LogLevel::Warn,
+                        message: format!(
+                            "[{short}] DevTools not ready yet — still building / VM Service not up"
+                        ),
+                    }))
+                    .await
+                    .ok();
             }
         }
     }
     if opened == 0 && missing > 0 {
-        events.send(AppEvent::Flutter(FlutterEvent::Log {
-            level: LogLevel::Info,
-            message: "🔧 No DevTools URL captured yet — wait for the app to start and retry".into(),
-        })).await.ok();
+        events
+            .send(AppEvent::Flutter(FlutterEvent::Log {
+                level: LogLevel::Info,
+                message: "🔧 No DevTools URL captured yet — wait for the app to start and retry"
+                    .into(),
+            }))
+            .await
+            .ok();
     }
 }
 
@@ -1455,7 +1597,10 @@ pub async fn run_multi(
         }
         all_devices.iter().map(|d| d.serial.clone()).collect()
     } else if all_devices.len() <= 1 || no_picker || plain {
-        all_devices.first().map(|d| vec![d.serial.clone()]).unwrap_or_default()
+        all_devices
+            .first()
+            .map(|d| vec![d.serial.clone()])
+            .unwrap_or_default()
     } else {
         // Picker cancelled (`q`/`Esc`) is a clean exit, not an
         // error. Returning an empty Vec lets the check below
@@ -1485,10 +1630,13 @@ pub async fn run_multi(
     let vm_mdns_cache = match fl_vmservice::mdns::spawn_browser() {
         Ok((cache, _handle)) => Some(cache),
         Err(e) => {
-            event_tx.send(AppEvent::Flutter(FlutterEvent::Log {
-                level: LogLevel::Warn,
-                message: format!("mDNS browser unavailable: {e} — Wi-Fi takeover disabled"),
-            })).await.ok();
+            event_tx
+                .send(AppEvent::Flutter(FlutterEvent::Log {
+                    level: LogLevel::Warn,
+                    message: format!("mDNS browser unavailable: {e} — Wi-Fi takeover disabled"),
+                }))
+                .await
+                .ok();
             None
         }
     };
@@ -1520,10 +1668,12 @@ pub async fn run_multi(
         // pre-pair failed" error for a setup that doesn't need it.
         let usb_pair = all_devices
             .iter()
-            .find(|d| d.serial == *serial
-                  && matches!(d.connection, fl_core::ConnectionKind::Usb)
-                  && !d.serial.starts_with("emulator-")
-                  && (d.platform.as_deref() == Some("android") || d.platform.is_none()))
+            .find(|d| {
+                d.serial == *serial
+                    && matches!(d.connection, fl_core::ConnectionKind::Usb)
+                    && !d.serial.starts_with("emulator-")
+                    && (d.platform.as_deref() == Some("android") || d.platform.is_none())
+            })
             .map(|d| d.serial.clone());
         // iOS-only optimisation: when the user picked a wired iPhone,
         // force `flutter run --device-connection attached` so the
@@ -1646,7 +1796,11 @@ pub async fn run_multi(
         return Ok(());
     }
 
-    let app_name = project.file_name().and_then(|n| n.to_str()).unwrap_or("app").to_string();
+    let app_name = project
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("app")
+        .to_string();
     let mut state = AppState::new(app_name, mode_label(mode).into());
     // Use an INLINE viewport (Claude-Code style): the TUI box sits at
     // the bottom of the terminal, the user's command history (and
@@ -1671,14 +1825,19 @@ pub async fn run_multi(
             while let Some(k) = keys_rx.recv().await {
                 if matches!(
                     k,
-                    FlKey::Char('r') | FlKey::Char('R') | FlKey::Char('b')
-                  | FlKey::Char('p') | FlKey::Char('o') | FlKey::Char('P')
-                  | FlKey::Char('s') | FlKey::Char('d')
+                    FlKey::Char('r')
+                        | FlKey::Char('R')
+                        | FlKey::Char('b')
+                        | FlKey::Char('p')
+                        | FlKey::Char('o')
+                        | FlKey::Char('P')
+                        | FlKey::Char('s')
+                        | FlKey::Char('d')
                 ) {
                     let bs = brightness.load(std::sync::atomic::Ordering::Relaxed);
                     let brightness_value: Option<bool> = match bs {
                         fl_tui::app::BRIGHTNESS_LIGHT => Some(false),
-                        fl_tui::app::BRIGHTNESS_DARK  => Some(true),
+                        fl_tui::app::BRIGHTNESS_DARK => Some(true),
                         _ => None, // BRIGHTNESS_SYSTEM
                     };
                     let paint_on = paint.load(std::sync::atomic::Ordering::Relaxed);
@@ -1719,25 +1878,36 @@ pub async fn run_multi(
 /// `tee` or redirected to a file.
 fn print_event_pretty(ev: &AppEvent, elapsed: std::time::Duration) {
     use std::io::Write;
-    let ts = format!("{:>4}.{:01}s", elapsed.as_secs(), elapsed.subsec_millis() / 100);
+    let ts = format!(
+        "{:>4}.{:01}s",
+        elapsed.as_secs(),
+        elapsed.subsec_millis() / 100
+    );
     let line = match ev {
         AppEvent::Flutter(FlutterEvent::Log { level, message }) => {
             let tag = match level {
                 LogLevel::Error => "\x1b[1;31mERROR\x1b[0m",
-                LogLevel::Warn  => "\x1b[1;33mWARN \x1b[0m",
-                LogLevel::Info  => "\x1b[1;36mINFO \x1b[0m",
+                LogLevel::Warn => "\x1b[1;33mWARN \x1b[0m",
+                LogLevel::Info => "\x1b[1;36mINFO \x1b[0m",
                 LogLevel::Debug => "\x1b[90mDEBUG\x1b[0m",
                 LogLevel::Trace => "\x1b[90mTRACE\x1b[0m",
             };
             format!("\x1b[90m{ts}\x1b[0m {tag} {message}")
         }
-        AppEvent::Flutter(FlutterEvent::AppStarted { app_id, vm_service_uri }) => {
+        AppEvent::Flutter(FlutterEvent::AppStarted {
+            app_id,
+            vm_service_uri,
+        }) => {
             format!("\x1b[90m{ts}\x1b[0m \x1b[1;32mSTART\x1b[0m app={app_id} vm={vm_service_uri}")
         }
         AppEvent::Flutter(FlutterEvent::Stopped { exit_code }) => {
             format!("\x1b[90m{ts}\x1b[0m \x1b[1;31mSTOP \x1b[0m exit_code={exit_code:?}")
         }
-        AppEvent::Flutter(FlutterEvent::Progress { id, message, finished }) => {
+        AppEvent::Flutter(FlutterEvent::Progress {
+            id,
+            message,
+            finished,
+        }) => {
             let mark = if *finished { "✓" } else { "…" };
             format!("\x1b[90m{ts}\x1b[0m \x1b[1;34mPROG \x1b[0m {mark} [{id}] {message}")
         }
@@ -1765,7 +1935,8 @@ async fn shutdown_sessions_fast(sessions: &[DeviceSession]) {
         async move {
             let mut guard = daemon.lock().await;
             if let Some(d) = guard.as_mut() {
-                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), d.send_quit()).await;
+                let _ = tokio::time::timeout(std::time::Duration::from_millis(500), d.send_quit())
+                    .await;
             }
         }
     });
@@ -1776,9 +1947,13 @@ async fn shutdown_sessions_fast(sessions: &[DeviceSession]) {
         async move {
             let mut guard = daemon.lock().await;
             if let Some(d) = guard.as_mut() {
-                if tokio::time::timeout(std::time::Duration::from_secs(1), d.wait()).await.is_err() {
+                if tokio::time::timeout(std::time::Duration::from_secs(1), d.wait())
+                    .await
+                    .is_err()
+                {
                     let _ = d.kill().await;
-                    let _ = tokio::time::timeout(std::time::Duration::from_millis(500), d.wait()).await;
+                    let _ =
+                        tokio::time::timeout(std::time::Duration::from_millis(500), d.wait()).await;
                 }
             }
         }

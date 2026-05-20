@@ -47,7 +47,11 @@ pub fn platform_icon(platform: &str) -> &'static str {
 /// counter — keeps `lines_for` pure.
 const SPINNER_FRAMES: &[char] = &['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-fn lines_for(session: &DeviceSessionSummary, theme: &Theme, spinner_frame: char) -> Vec<Line<'static>> {
+fn lines_for(
+    session: &DeviceSessionSummary,
+    theme: &Theme,
+    spinner_frame: char,
+) -> Vec<Line<'static>> {
     // The coloured bullet alone communicates the state (green dot =
     // ready, spinner = reloading, etc.) so we drop the textual
     // "ready" / "connecting" label at the end of the row. For the
@@ -66,7 +70,11 @@ fn lines_for(session: &DeviceSessionSummary, theme: &Theme, spinner_frame: char)
         ConnectionKind::Usb => "⚡ USB",
     };
     let plat_raw = session.platform.as_deref().unwrap_or("");
-    let plat_label: &str = if plat_raw == "ios-simulator" { "ios-sim" } else { plat_raw };
+    let plat_label: &str = if plat_raw == "ios-simulator" {
+        "ios-sim"
+    } else {
+        plat_raw
+    };
     let plat_glyph = platform_icon(plat_raw);
     let plat_text = if plat_glyph.is_empty() {
         format!("{plat_label:<9}")
@@ -78,7 +86,10 @@ fn lines_for(session: &DeviceSessionSummary, theme: &Theme, spinner_frame: char)
     // `display_name` (visually noisy, especially when the display
     // name *is* the serial because we couldn't resolve a model).
     let row = Line::from(vec![
-        Span::styled(format!("{bullet} "), Style::default().fg(bullet_color).bg(theme.bg)),
+        Span::styled(
+            format!("{bullet} "),
+            Style::default().fg(bullet_color).bg(theme.bg),
+        ),
         Span::styled(session.display_name.clone(), theme.base()),
         Span::raw("  "),
         Span::styled(plat_text, theme.dimmed()),
@@ -102,8 +113,7 @@ pub fn render_devices(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     // standalone `Spinner` widget. We compute it ONCE per render
     // so every in-progress device pulses in unison, not out-of-
     // phase noise.
-    let frame_idx =
-        (state.started_at.elapsed().as_millis() / 80) as usize % SPINNER_FRAMES.len();
+    let frame_idx = (state.started_at.elapsed().as_millis() / 80) as usize % SPINNER_FRAMES.len();
     let spinner_frame = SPINNER_FRAMES[frame_idx];
 
     let mut lines: Vec<Line> = Vec::new();
@@ -161,7 +171,9 @@ mod tests {
         render_devices(Rect::new(0, 0, 60, 4), &mut buf, &s, &Theme::TOKYO_NIGHT);
         let mut text = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            for x in 0..buf.area.width {
+                text.push_str(buf.get(x, y).symbol());
+            }
             text.push('\n');
         }
         assert!(text.contains("aucun"), "missing aucun:\n{text}");
@@ -171,25 +183,34 @@ mod tests {
     fn reconnecting_indicator_appears_when_persistent_banner_is_reconnecting() {
         let mut s = AppState::new("a".into(), "d".into());
         add_session(&mut s, "1.2.3.4:5555", DeviceSessionState::Ready);
-        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting { attempt: 2 }));
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting {
+            attempt: 2,
+        }));
         let mut buf = Buffer::empty(Rect::new(0, 0, 60, 8));
         render_devices(Rect::new(0, 0, 60, 8), &mut buf, &s, &Theme::TOKYO_NIGHT);
         let mut text = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            for x in 0..buf.area.width {
+                text.push_str(buf.get(x, y).symbol());
+            }
             text.push('\n');
         }
-        assert!(text.contains("↻"), "expected reconnecting indicator, got:\n{text}");
+        assert!(
+            text.contains("↻"),
+            "expected reconnecting indicator, got:\n{text}"
+        );
         assert!(text.contains("#2"));
     }
 
     #[test]
     fn render_includes_platform_tag() {
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::SessionState {
-            serial: "ABC".into(),
-            state: fl_core::DeviceSessionState::Ready,
-        }));
+        s.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "ABC".into(),
+                state: fl_core::DeviceSessionState::Ready,
+            },
+        ));
         s.apply(fl_core::AppEvent::Device(fl_core::DeviceEvent::Discovered(
             fl_core::Device {
                 serial: "ABC".into(),
@@ -201,13 +222,15 @@ mod tests {
                 android_version: None,
                 battery: None,
                 platform: Some("ios".into()),
-            }
+            },
         )));
         let mut buf = Buffer::empty(Rect::new(0, 0, 80, 6));
         render_devices(Rect::new(0, 0, 80, 6), &mut buf, &s, &Theme::TOKYO_NIGHT);
         let mut text = String::new();
         for y in 0..buf.area.height {
-            for x in 0..buf.area.width { text.push_str(buf.get(x, y).symbol()); }
+            for x in 0..buf.area.width {
+                text.push_str(buf.get(x, y).symbol());
+            }
             text.push('\n');
         }
         assert!(text.contains("ios"), "missing platform tag, got:\n{text}");

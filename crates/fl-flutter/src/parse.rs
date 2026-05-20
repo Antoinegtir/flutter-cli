@@ -21,20 +21,32 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                 // either field, falling back to empty so we still surface the
                 // event (and freeze the build chronometer).
                 let params = obj.get("params")?;
-                let app_id = params.get("appId").and_then(Value::as_str).unwrap_or("").to_string();
-                let uri = params.get("vmServiceUri")
+                let app_id = params
+                    .get("appId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let uri = params
+                    .get("vmServiceUri")
                     .or_else(|| params.get("wsUri"))
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
-                Some(FlutterEvent::AppStarted { app_id, vm_service_uri: uri })
+                Some(FlutterEvent::AppStarted {
+                    app_id,
+                    vm_service_uri: uri,
+                })
             }
             // Only `app.stopped` is terminal. `app.stop` is an intermediate
             // shutdown-initiated event that fires mid-build for things like
             // pod install / Gradle hot-restart; treating it as terminal makes
             // fl exit prematurely.
             "app.stopped" => {
-                let code = obj.get("params").and_then(|p| p.get("exitCode")).and_then(Value::as_i64).map(|i| i as i32);
+                let code = obj
+                    .get("params")
+                    .and_then(|p| p.get("exitCode"))
+                    .and_then(Value::as_i64)
+                    .map(|i| i as i32);
                 Some(FlutterEvent::Stopped { exit_code: code })
             }
             "app.start" => {
@@ -58,10 +70,21 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                 // VM Service WebSocket URL — promote to AppStarted so consumers
                 // (chronometer freeze, VM Service connection) trigger on it.
                 let params = obj.get("params")?;
-                let app_id = params.get("appId").and_then(Value::as_str).unwrap_or("").to_string();
-                let uri = params.get("wsUri").or_else(|| params.get("uri"))
-                    .and_then(Value::as_str).unwrap_or("").to_string();
-                Some(FlutterEvent::AppStarted { app_id, vm_service_uri: uri })
+                let app_id = params
+                    .get("appId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let uri = params
+                    .get("wsUri")
+                    .or_else(|| params.get("uri"))
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                Some(FlutterEvent::AppStarted {
+                    app_id,
+                    vm_service_uri: uri,
+                })
             }
             "app.devTools" | "app.dtd" => {
                 // Connection-info side channels; summarise.
@@ -77,34 +100,84 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
             }
             "daemon.logMessage" => {
                 let params = obj.get("params")?;
-                let level_s = params.get("level").and_then(Value::as_str).unwrap_or("info");
-                let msg = params.get("message").and_then(Value::as_str).unwrap_or("").to_string();
-                Some(FlutterEvent::Log { level: parse_level(level_s), message: msg })
+                let level_s = params
+                    .get("level")
+                    .and_then(Value::as_str)
+                    .unwrap_or("info");
+                let msg = params
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                Some(FlutterEvent::Log {
+                    level: parse_level(level_s),
+                    message: msg,
+                })
             }
             "app.log" => {
                 let params = obj.get("params")?;
-                let msg = params.get("log").and_then(Value::as_str).unwrap_or("").to_string();
-                let level = if params.get("error").and_then(Value::as_bool).unwrap_or(false) {
+                let msg = params
+                    .get("log")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let level = if params
+                    .get("error")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false)
+                {
                     LogLevel::Error
                 } else {
                     LogLevel::Info
                 };
-                Some(FlutterEvent::Log { level, message: msg })
+                Some(FlutterEvent::Log {
+                    level,
+                    message: msg,
+                })
             }
             "daemon.showMessage" => {
                 let params = obj.get("params")?;
-                let level_s = params.get("level").and_then(Value::as_str).unwrap_or("info");
+                let level_s = params
+                    .get("level")
+                    .and_then(Value::as_str)
+                    .unwrap_or("info");
                 let title = params.get("title").and_then(Value::as_str).unwrap_or("");
-                let msg = params.get("message").and_then(Value::as_str).unwrap_or("").to_string();
-                let combined = if title.is_empty() { msg } else { format!("{title}: {msg}") };
-                Some(FlutterEvent::Log { level: parse_level(level_s), message: combined })
+                let msg = params
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let combined = if title.is_empty() {
+                    msg
+                } else {
+                    format!("{title}: {msg}")
+                };
+                Some(FlutterEvent::Log {
+                    level: parse_level(level_s),
+                    message: combined,
+                })
             }
             "app.progress" => {
                 let params = obj.get("params")?;
-                let id = params.get("id").and_then(Value::as_str).unwrap_or("").to_string();
-                let message = params.get("message").and_then(Value::as_str).unwrap_or("").to_string();
-                let finished = params.get("finished").and_then(Value::as_bool).unwrap_or(false);
-                Some(FlutterEvent::Progress { id, message, finished })
+                let id = params
+                    .get("id")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let message = params
+                    .get("message")
+                    .and_then(Value::as_str)
+                    .unwrap_or("")
+                    .to_string();
+                let finished = params
+                    .get("finished")
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                Some(FlutterEvent::Progress {
+                    id,
+                    message,
+                    finished,
+                })
             }
             _ => None,
         };
@@ -129,14 +202,20 @@ mod tests {
     #[test]
     fn parses_daemon_connected() {
         let line = r#"[{"event":"daemon.connected","params":{"version":"0.6.1","pid":123}}]"#;
-        assert!(matches!(parse_daemon_line(line), Some(FlutterEvent::DaemonReady)));
+        assert!(matches!(
+            parse_daemon_line(line),
+            Some(FlutterEvent::DaemonReady)
+        ));
     }
 
     #[test]
     fn parses_app_started_with_vm_service_uri() {
         let line = r#"[{"event":"app.started","params":{"appId":"abc","vmServiceUri":"ws://127.0.0.1:55321/abc/ws"}}]"#;
         match parse_daemon_line(line).unwrap() {
-            FlutterEvent::AppStarted { app_id, vm_service_uri } => {
+            FlutterEvent::AppStarted {
+                app_id,
+                vm_service_uri,
+            } => {
                 assert_eq!(app_id, "abc");
                 assert!(vm_service_uri.starts_with("ws://"));
             }

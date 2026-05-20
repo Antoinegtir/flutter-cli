@@ -5,7 +5,8 @@ use serde_json::{json, Value};
 
 impl VmServiceClient {
     pub async fn hot_reload(&self, isolate_id: &str) -> anyhow::Result<Value> {
-        self.call("reloadSources", json!({ "isolateId": isolate_id })).await
+        self.call("reloadSources", json!({ "isolateId": isolate_id }))
+            .await
     }
 
     /// Capture the current frame as a PNG via Flutter's
@@ -38,7 +39,11 @@ impl VmServiceClient {
     }
 
     pub async fn toggle_brightness(&self, isolate_id: &str, dark: bool) -> anyhow::Result<Value> {
-        let value = if dark { "Brightness.dark" } else { "Brightness.light" };
+        let value = if dark {
+            "Brightness.dark"
+        } else {
+            "Brightness.light"
+        };
         self.call(
             "ext.flutter.brightnessOverride",
             json!({ "isolateId": isolate_id, "value": value }),
@@ -49,7 +54,11 @@ impl VmServiceClient {
     /// Set the Flutter framework's brightness override to a specific state,
     /// or `None` to clear the override and follow the host system again.
     /// Mirrors `flutter run`'s `b` key cycle (system → light → dark → system).
-    pub async fn set_brightness(&self, isolate_id: &str, value: Option<bool>) -> anyhow::Result<Value> {
+    pub async fn set_brightness(
+        &self,
+        isolate_id: &str,
+        value: Option<bool>,
+    ) -> anyhow::Result<Value> {
         let v = match value {
             Some(true) => "Brightness.dark",
             Some(false) => "Brightness.light",
@@ -62,7 +71,11 @@ impl VmServiceClient {
         .await
     }
 
-    pub async fn toggle_debug_paint(&self, isolate_id: &str, enabled: bool) -> anyhow::Result<Value> {
+    pub async fn toggle_debug_paint(
+        &self,
+        isolate_id: &str,
+        enabled: bool,
+    ) -> anyhow::Result<Value> {
         self.call(
             "ext.flutter.debugPaint",
             json!({ "isolateId": isolate_id, "enabled": enabled }),
@@ -79,7 +92,11 @@ impl VmServiceClient {
         .await
     }
 
-    pub async fn toggle_performance_overlay(&self, isolate_id: &str, enabled: bool) -> anyhow::Result<Value> {
+    pub async fn toggle_performance_overlay(
+        &self,
+        isolate_id: &str,
+        enabled: bool,
+    ) -> anyhow::Result<Value> {
         self.call(
             "ext.flutter.showPerformanceOverlay",
             json!({ "isolateId": isolate_id, "enabled": enabled }),
@@ -116,7 +133,10 @@ impl VmServiceClient {
         };
         // VM service returns bytes for heapUsage / externalUsage / heapCapacity.
         let heap_used = v.get("heapUsage").and_then(Value::as_f64).unwrap_or(0.0);
-        let external = v.get("externalUsage").and_then(Value::as_f64).unwrap_or(0.0);
+        let external = v
+            .get("externalUsage")
+            .and_then(Value::as_f64)
+            .unwrap_or(0.0);
         let capacity = v.get("heapCapacity").and_then(Value::as_f64).unwrap_or(0.0);
         let mb = 1024.0 * 1024.0;
         Ok(((heap_used + external) / mb, capacity / mb))
@@ -124,7 +144,11 @@ impl VmServiceClient {
 
     pub async fn get_first_isolate_id(&self) -> anyhow::Result<String> {
         let vm = self.call("getVM", json!({})).await?;
-        let isolates = vm.get("isolates").and_then(Value::as_array).cloned().unwrap_or_default();
+        let isolates = vm
+            .get("isolates")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
         let id = isolates
             .first()
             .and_then(|i| i.get("id"))
@@ -145,7 +169,8 @@ mod tests {
         let uri = spawn_mock_handler(|req| {
             assert_eq!(req["method"], "getVM");
             json!({"isolates":[{"id":"isolates/1"},{"id":"isolates/2"}]})
-        }).await;
+        })
+        .await;
         let (tx, _rx) = mpsc::channel(8);
         let client = VmServiceClient::connect(&uri, tx).await.unwrap();
         let id = client.get_first_isolate_id().await.unwrap();
@@ -158,7 +183,8 @@ mod tests {
             assert_eq!(req["method"], "reloadSources");
             assert_eq!(req["params"]["isolateId"], "isolates/1");
             json!({"type":"Success"})
-        }).await;
+        })
+        .await;
         let (tx, _rx) = mpsc::channel(8);
         let client = VmServiceClient::connect(&uri, tx).await.unwrap();
         let v = client.hot_reload("isolates/1").await.unwrap();

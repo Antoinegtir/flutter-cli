@@ -66,11 +66,7 @@ flutter() {{
 fn render_fish() -> String {
     let cases = INTERCEPTED
         .iter()
-        .map(|cmd| {
-            format!(
-                "    case {cmd}\n        command flutter-cli {cmd} $argv[2..]"
-            )
-        })
+        .map(|cmd| format!("    case {cmd}\n        command flutter-cli {cmd} $argv[2..]"))
         .collect::<Vec<_>>()
         .join("\n");
     format!(
@@ -104,7 +100,10 @@ mod tests {
         }
         // The catch-all has to go through `command flutter` —
         // otherwise we'd recurse into our own shim infinitely.
-        assert!(s.contains(r#"*) command flutter "$@""#), "missing fall-through:\n{s}");
+        assert!(
+            s.contains(r#"*) command flutter "$@""#),
+            "missing fall-through:\n{s}"
+        );
     }
 
     #[test]

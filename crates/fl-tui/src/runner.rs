@@ -6,13 +6,15 @@ use crate::theme::Theme;
 use anyhow::Context;
 use crossterm::event::{Event, EventStream, KeyCode, KeyModifiers, MouseEvent, MouseEventKind};
 use crossterm::execute;
-use crossterm::terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen};
-use std::io::Write;
+use crossterm::terminal::{
+    disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen,
+};
 use fl_core::{AppEvent, KeyEvent as FlKey};
 use futures_util::StreamExt;
 use ratatui::backend::CrosstermBackend;
 use ratatui::{Terminal, TerminalOptions, Viewport};
 use std::io::Stdout;
+use std::io::Write;
 use std::time::Duration;
 use tokio::sync::mpsc::{Receiver, Sender};
 
@@ -79,8 +81,8 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
     const B: &str = "\x1b[38;2;122;162;247m"; // box / accent
     const T: &str = "\x1b[38;2;192;202;245m"; // primary text
     const D: &str = "\x1b[38;2;105;120;170m"; // dim text (tips, urls)
-    const BD: &str = "\x1b[1m";                // bold
-    const R: &str = "\x1b[0m";                 // reset
+    const BD: &str = "\x1b[1m"; // bold
+    const R: &str = "\x1b[0m"; // reset
 
     // Personalize the welcome line with the user's first name on macOS
     // (`id -F`), falling back to `$USER` elsewhere. Mirrors Claude
@@ -101,16 +103,28 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
         ("         ------     ", welcome),
         ("       ------       ", String::new()),
         ("      ------        ", "Modern Flutter CLI".to_string()),
-        ("    ------          ", "hot-reload · multi-device · perf monitor".to_string()),
+        (
+            "    ------          ",
+            "hot-reload · multi-device · perf monitor".to_string(),
+        ),
         ("  ------   ----==   ", String::new()),
         ("    --   =----=     ", "Tips".to_string()),
-        ("       =======      ", "• [r] hot reload   [R] hot restart".to_string()),
-        ("       =====#       ", "• [b] theme        [P] perf overlay".to_string()),
+        (
+            "       =======      ",
+            "• [r] hot reload   [R] hot restart".to_string(),
+        ),
+        (
+            "       =====#       ",
+            "• [b] theme        [P] perf overlay".to_string(),
+        ),
         ("         =#####     ", "• [/] filter live".to_string()),
-        ("           ######   ", "• [c] copy         [q] quit".to_string()),
+        (
+            "           ######   ",
+            "• [c] copy         [q] quit".to_string(),
+        ),
     ];
 
-    let inner_w = width.saturating_sub(2) as usize;       // chars between the two `│`s
+    let inner_w = width.saturating_sub(2) as usize; // chars between the two `│`s
     let right_col_w = (width as usize).saturating_sub(26); // dynamic right column width
 
     let mut out: Vec<String> = Vec::with_capacity(16);
@@ -173,7 +187,11 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
 /// or the rocket emoji are upgraded to the theme's success colour,
 /// so build-complete / app-launched announcements pop against the
 /// stream of regular debug noise.
-fn log_style_for(level: fl_core::LogLevel, message: &str, theme: &Theme) -> (&'static str, ratatui::style::Color) {
+fn log_style_for(
+    level: fl_core::LogLevel,
+    message: &str,
+    theme: &Theme,
+) -> (&'static str, ratatui::style::Color) {
     // `contains` not `starts_with` so a multi-device prefix like
     // `[iPhone Antoine] ` doesn't break the green-up — the marker
     // can sit anywhere in the message body.
@@ -188,8 +206,8 @@ fn log_style_for(level: fl_core::LogLevel, message: &str, theme: &Theme) -> (&'s
 fn log_style(level: fl_core::LogLevel, theme: &Theme) -> (&'static str, ratatui::style::Color) {
     match level {
         fl_core::LogLevel::Error => ("ERROR ", theme.error),
-        fl_core::LogLevel::Warn  => ("WARN  ", theme.warn),
-        fl_core::LogLevel::Info  => ("INFO  ", theme.fg),
+        fl_core::LogLevel::Warn => ("WARN  ", theme.warn),
+        fl_core::LogLevel::Info => ("INFO  ", theme.fg),
         fl_core::LogLevel::Debug => ("DEBUG ", theme.dim),
         fl_core::LogLevel::Trace => ("TRACE ", theme.dim),
     }
@@ -200,7 +218,11 @@ fn log_style(level: fl_core::LogLevel, theme: &Theme) -> (&'static str, ratatui:
 /// warn, error…) or the message all count as a match. Mirrors the
 /// behavior of the old (now-unused) logs-panel filter so the `/`
 /// keybind keeps the same UX after we moved logs into the scrollback.
-pub(crate) fn log_matches_filter(filter: Option<&str>, level: fl_core::LogLevel, message: &str) -> bool {
+pub(crate) fn log_matches_filter(
+    filter: Option<&str>,
+    level: fl_core::LogLevel,
+    message: &str,
+) -> bool {
     let needle = match filter {
         None => return true,
         Some(s) if s.is_empty() => return true,
@@ -209,8 +231,8 @@ pub(crate) fn log_matches_filter(filter: Option<&str>, level: fl_core::LogLevel,
     let needle_lower = needle.to_ascii_lowercase();
     let level_name = match level {
         fl_core::LogLevel::Error => "error",
-        fl_core::LogLevel::Warn  => "warn",
-        fl_core::LogLevel::Info  => "info",
+        fl_core::LogLevel::Warn => "warn",
+        fl_core::LogLevel::Info => "info",
         fl_core::LogLevel::Debug => "debug",
         fl_core::LogLevel::Trace => "trace",
     };
@@ -259,7 +281,8 @@ impl TuiRunner {
         //   ?1005 — UTF-8 extended coords
         //   ?1006 — SGR encoding (modern, supports coords > 223)
         //   ?1015 — urxvt extended coords
-        let disable_all = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l";
+        let disable_all =
+            "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l";
         let enable_wanted = "\x1b[?1000h\x1b[?1006h";
         write!(stdout, "{disable_all}{enable_wanted}")?;
         stdout.flush()?;
@@ -326,16 +349,14 @@ impl TuiRunner {
         // and never overflow a tiny terminal. Floor at 8 rows so the
         // dashboard's mandatory regions still fit; render_too_small
         // takes over if even that doesn't.
-        let effective_height = height
-            .min(rows.saturating_sub(2))
-            .max(8)
-            .min(rows.max(1));
+        let effective_height = height.min(rows.saturating_sub(2)).max(8).min(rows.max(1));
 
         // Defensive: turn off any leftover mouse-tracking modes a prior
         // TUI may have enabled and crashed without cleaning up. We do
         // NOT enable any mouse mode of our own in inline mode — see
         // doc comment above.
-        let disable_all = "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l";
+        let disable_all =
+            "\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1004l\x1b[?1005l\x1b[?1006l\x1b[?1015l";
         write!(stdout, "{disable_all}")?;
 
         // Pre-scroll: emit `effective_height` CRLF pairs so the
@@ -365,9 +386,8 @@ impl TuiRunner {
         let banner = welcome_banner_lines(cols);
         let banner_h = banner.len() as u16;
         let rows_above_viewport = rows.saturating_sub(effective_height);
-        let banner_fits = show_banner
-            && cols >= BANNER_MIN_WIDTH
-            && rows_above_viewport >= banner_h;
+        let banner_fits =
+            show_banner && cols >= BANNER_MIN_WIDTH && rows_above_viewport >= banner_h;
         if banner_fits {
             // Paint banner glued just above the viewport. As logs
             // flow in, the band scrolls up via DECSTBM and the
@@ -398,7 +418,9 @@ impl TuiRunner {
         let backend = CrosstermBackend::new(stdout);
         let terminal = Terminal::with_options(
             backend,
-            TerminalOptions { viewport: Viewport::Fixed(area) },
+            TerminalOptions {
+                viewport: Viewport::Fixed(area),
+            },
         )
         .context("creating fixed-viewport ratatui terminal")?;
         Ok(Self {
@@ -424,7 +446,12 @@ impl TuiRunner {
     ///
     /// No-op when not in inline mode — fullscreen viewports own the
     /// whole screen, so there's nowhere to print "above" them.
-    pub fn print_above_viewport(&mut self, prefix: &str, message: &str, fg: ratatui::style::Color) -> anyhow::Result<()> {
+    pub fn print_above_viewport(
+        &mut self,
+        prefix: &str,
+        message: &str,
+        fg: ratatui::style::Color,
+    ) -> anyhow::Result<()> {
         if !matches!(self.mode, ViewportMode::Inline) {
             return Ok(());
         }
@@ -904,16 +931,28 @@ mod tests {
 
     #[test]
     fn maps_lowercase_char() {
-        assert!(matches!(map_key(key(KeyCode::Char('r'), KeyModifiers::NONE)).unwrap(), FlKey::Char('r')));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('r'), KeyModifiers::NONE)).unwrap(),
+            FlKey::Char('r')
+        ));
     }
     #[test]
     fn maps_ctrl_c() {
-        assert!(matches!(map_key(key(KeyCode::Char('c'), KeyModifiers::CONTROL)).unwrap(), FlKey::Ctrl('c')));
+        assert!(matches!(
+            map_key(key(KeyCode::Char('c'), KeyModifiers::CONTROL)).unwrap(),
+            FlKey::Ctrl('c')
+        ));
     }
     #[test]
     fn maps_arrow_keys() {
-        assert!(matches!(map_key(key(KeyCode::Up, KeyModifiers::NONE)).unwrap(), FlKey::Up));
-        assert!(matches!(map_key(key(KeyCode::Down, KeyModifiers::NONE)).unwrap(), FlKey::Down));
+        assert!(matches!(
+            map_key(key(KeyCode::Up, KeyModifiers::NONE)).unwrap(),
+            FlKey::Up
+        ));
+        assert!(matches!(
+            map_key(key(KeyCode::Down, KeyModifiers::NONE)).unwrap(),
+            FlKey::Down
+        ));
     }
 
     use crate::view::View;
@@ -930,11 +969,22 @@ mod tests {
     }
     impl View for DummyView {
         type Input = u32;
-        fn apply(&mut self, _: u32) { self.applied += 1; }
+        fn apply(&mut self, _: u32) {
+            self.applied += 1;
+        }
         fn render(&self, _: Rect, _: &mut Buffer, _: &crate::theme::Theme) {}
-        fn handle_key(&mut self, _: fl_core::KeyEvent) -> Option<u32> { None }
-        fn tick(&mut self, _: Duration) { self.ticks += 1; if self.ticks >= 3 { self.done = true; } }
-        fn quitting(&self) -> bool { self.done }
+        fn handle_key(&mut self, _: fl_core::KeyEvent) -> Option<u32> {
+            None
+        }
+        fn tick(&mut self, _: Duration) {
+            self.ticks += 1;
+            if self.ticks >= 3 {
+                self.done = true;
+            }
+        }
+        fn quitting(&self) -> bool {
+            self.done
+        }
     }
 
     #[tokio::test(start_paused = true)]
@@ -946,7 +996,9 @@ mod tests {
         // touches stdout, so we instead exercise the View trait's loop logic by
         // calling tick() three times manually here; full end-to-end coverage comes
         // from the existing run() tests.
-        for _ in 0..3 { v.tick(Duration::from_millis(33)); }
+        for _ in 0..3 {
+            v.tick(Duration::from_millis(33));
+        }
         assert!(v.quitting());
         // drain to avoid the unused-warning trap.
         assert!(rx.try_recv().is_err());

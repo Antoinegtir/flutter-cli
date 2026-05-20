@@ -14,5 +14,15 @@ pub async fn run(
     mode: BuildMode,
     extra: Vec<String>,
 ) -> anyhow::Result<()> {
-    crate::multi::run_multi(project, devices_arg, all, no_picker, no_wifi, no_tui, mode, extra).await
+    crate::multi::run_multi(
+        project,
+        devices_arg,
+        all,
+        no_picker,
+        no_wifi,
+        no_tui,
+        mode,
+        extra,
+    )
+    .await
 }

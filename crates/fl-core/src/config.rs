@@ -46,8 +46,7 @@ impl Config {
     }
 
     pub fn default_path() -> Option<PathBuf> {
-        directories::ProjectDirs::from("", "", "fl")
-            .map(|d| d.config_dir().join("config.toml"))
+        directories::ProjectDirs::from("", "", "fl").map(|d| d.config_dir().join("config.toml"))
     }
 }
 

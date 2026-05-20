@@ -13,7 +13,12 @@ pub struct Request<'a> {
 
 impl<'a> Request<'a> {
     pub fn new(id: u64, method: &'a str, params: Value) -> Self {
-        Self { jsonrpc: "2.0", id, method, params }
+        Self {
+            jsonrpc: "2.0",
+            id,
+            method,
+            params,
+        }
     }
     pub fn to_text(&self) -> String {
         serde_json::to_string(self).expect("Request serializes")
@@ -38,7 +43,10 @@ pub struct RpcError {
 #[derive(Debug)]
 pub enum Incoming {
     /// Result for a previously sent request.
-    Reply { id: u64, result: Result<Value, RpcError> },
+    Reply {
+        id: u64,
+        result: Result<Value, RpcError>,
+    },
     /// Stream event: `streamNotify` push.
     StreamEvent { stream_id: String, event: Value },
     /// Anything else we don't model.
@@ -51,13 +59,20 @@ pub fn parse_incoming(text: &str) -> anyhow::Result<Incoming> {
         let result = match (r.result, r.error) {
             (Some(v), _) => Ok(v),
             (_, Some(e)) => Err(e),
-            _ => Err(RpcError { code: -32603, message: "empty reply".into() }),
+            _ => Err(RpcError {
+                code: -32603,
+                message: "empty reply".into(),
+            }),
         };
         return Ok(Incoming::Reply { id, result });
     }
     if r.method.as_deref() == Some("streamNotify") {
         if let Some(p) = r.params {
-            let stream_id = p.get("streamId").and_then(Value::as_str).unwrap_or("").to_string();
+            let stream_id = p
+                .get("streamId")
+                .and_then(Value::as_str)
+                .unwrap_or("")
+                .to_string();
             let event = p.get("event").cloned().unwrap_or(Value::Null);
             return Ok(Incoming::StreamEvent { stream_id, event });
         }

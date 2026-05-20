@@ -5,7 +5,11 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 pub fn short_name_for_serial(serial: &str) -> String {
-    let mut s: String = serial.chars().filter(|c| c.is_alphanumeric()).take(8).collect();
+    let mut s: String = serial
+        .chars()
+        .filter(|c| c.is_alphanumeric())
+        .take(8)
+        .collect();
     if s.is_empty() {
         s.push('?');
     }
@@ -216,7 +220,9 @@ impl AppState {
             compile_finished: None,
             log_scroll_offset: 0,
             log_viewport_height: std::sync::atomic::AtomicUsize::new(20),
-            brightness_state: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(BRIGHTNESS_SYSTEM)),
+            brightness_state: std::sync::Arc::new(std::sync::atomic::AtomicU8::new(
+                BRIGHTNESS_SYSTEM,
+            )),
             debug_paint_on: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             platform_is_ios: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
             perf_overlay_on: std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false)),
@@ -262,7 +268,8 @@ impl AppState {
     /// Duration to display on the chronometer. Live until `compile_finished`
     /// is recorded, then frozen at that value.
     pub fn elapsed(&self) -> Duration {
-        self.compile_finished.unwrap_or_else(|| self.started_at.elapsed())
+        self.compile_finished
+            .unwrap_or_else(|| self.started_at.elapsed())
     }
 
     pub fn apply(&mut self, ev: AppEvent) {
@@ -278,7 +285,11 @@ impl AppState {
     fn apply_device(&mut self, ev: DeviceEvent) {
         match ev {
             DeviceEvent::Discovered(d) => {
-                if let Some(sess) = self.active_sessions.iter_mut().find(|s| s.serial == d.serial) {
+                if let Some(sess) = self
+                    .active_sessions
+                    .iter_mut()
+                    .find(|s| s.serial == d.serial)
+                {
                     // "Discovered" means adb / devicectl sees the
                     // device physically attached — NOT that the
                     // Flutter app has started on it. Only fl-cli's
@@ -362,8 +373,7 @@ impl AppState {
                 // to read the logs / scroll back. `q` is always an option.
                 let became_terminal = matches!(
                     state,
-                    fl_core::DeviceSessionState::Stopped
-                        | fl_core::DeviceSessionState::Failed
+                    fl_core::DeviceSessionState::Stopped | fl_core::DeviceSessionState::Failed
                 ) && !matches!(
                     prev,
                     Some(fl_core::DeviceSessionState::Stopped)
@@ -398,12 +408,22 @@ impl AppState {
                     self.show_banner(BannerKind::Success, label);
                 }
             }
-            DeviceEvent::HttpRequest { device, method, url, status, duration_ms } => {
+            DeviceEvent::HttpRequest {
+                device,
+                method,
+                url,
+                status,
+                duration_ms,
+            } => {
                 // Append to the rolling buffer the Network panel
                 // reads from. Cap at NETWORK_RING to keep memory
                 // bounded — old requests fall off the front.
                 self.network_requests.push_back(NetworkRequest {
-                    device, method, url, status, duration_ms,
+                    device,
+                    method,
+                    url,
+                    status,
+                    duration_ms,
                 });
                 while self.network_requests.len() > NETWORK_RING {
                     self.network_requests.pop_front();
@@ -436,10 +456,16 @@ impl AppState {
                 // even though the others were still compiling.
             }
             FlutterEvent::Log { level, message } => self.push_log(level, message),
-            FlutterEvent::Progress { message, finished, .. } => {
+            FlutterEvent::Progress {
+                message, finished, ..
+            } => {
                 if !message.is_empty() {
                     self.push_log(
-                        if finished { LogLevel::Info } else { LogLevel::Debug },
+                        if finished {
+                            LogLevel::Info
+                        } else {
+                            LogLevel::Debug
+                        },
                         message,
                     );
                 }
@@ -459,9 +485,16 @@ impl AppState {
             VmEvent::Disconnected => self.vm_connected = false,
             VmEvent::Stdout(s) => self.push_log(LogLevel::Info, s.trim_end().into()),
             VmEvent::Stderr(s) => self.push_log(LogLevel::Error, s.trim_end().into()),
-            VmEvent::FrameTiming { ui_micros, raster_micros } => {
+            VmEvent::FrameTiming {
+                ui_micros,
+                raster_micros,
+            } => {
                 let total_ms = (ui_micros + raster_micros) as f32 / 1000.0;
-                let fps = if total_ms > 0.0 { 1000.0 / total_ms } else { 0.0 };
+                let fps = if total_ms > 0.0 {
+                    1000.0 / total_ms
+                } else {
+                    0.0
+                };
                 push_capped(&mut self.fps_samples, fps.clamp(0.0, 120.0), FPS_RING);
                 self.frame_ui_ms = ui_micros as f32 / 1000.0;
                 self.frame_raster_ms = raster_micros as f32 / 1000.0;
@@ -621,8 +654,7 @@ impl AppState {
             }
             fl_core::KeyEvent::Down => {
                 if self.show_network {
-                    self.network_scroll_offset =
-                        self.network_scroll_offset.saturating_sub(1);
+                    self.network_scroll_offset = self.network_scroll_offset.saturating_sub(1);
                 } else {
                     self.log_scroll_offset = self.log_scroll_offset.saturating_sub(1);
                 }
@@ -674,14 +706,22 @@ impl AppState {
                 use std::sync::atomic::Ordering;
                 let next = !self.debug_paint_on.load(Ordering::Relaxed);
                 self.debug_paint_on.store(next, Ordering::Relaxed);
-                let label = if next { "Debug paint: ON" } else { "Debug paint: OFF" };
+                let label = if next {
+                    "Debug paint: ON"
+                } else {
+                    "Debug paint: OFF"
+                };
                 self.show_banner(BannerKind::Info, label);
             }
             fl_core::KeyEvent::Char('o') => {
                 use std::sync::atomic::Ordering;
                 let next = !self.platform_is_ios.load(Ordering::Relaxed);
                 self.platform_is_ios.store(next, Ordering::Relaxed);
-                let label = if next { "Platform → iOS" } else { "Platform → Android" };
+                let label = if next {
+                    "Platform → iOS"
+                } else {
+                    "Platform → Android"
+                };
                 self.show_banner(BannerKind::Info, label);
             }
             fl_core::KeyEvent::Char('P') => {
@@ -703,7 +743,11 @@ impl AppState {
                 self.show_network = !self.show_network;
                 self.show_banner(
                     BannerKind::Info,
-                    if self.show_network { "🌐 Network panel" } else { "📊 Performance panel" },
+                    if self.show_network {
+                        "🌐 Network panel"
+                    } else {
+                        "📊 Performance panel"
+                    },
                 );
             }
             fl_core::KeyEvent::Char('c') => {
@@ -733,10 +777,7 @@ impl AppState {
                         };
                         self.show_banner(BannerKind::Success, &label);
                     }
-                    Err(e) => self.show_banner(
-                        BannerKind::Error,
-                        &format!("Copy failed: {e}"),
-                    ),
+                    Err(e) => self.show_banner(BannerKind::Error, &format!("Copy failed: {e}")),
                 }
             }
             fl_core::KeyEvent::Char('/') => {
@@ -746,10 +787,7 @@ impl AppState {
                 self.filter_saved = self.log_filter.clone();
                 self.filter_input = Some(self.log_filter.clone().unwrap_or_default());
                 let preview = self.filter_input.clone().unwrap_or_default();
-                self.show_persistent_banner(
-                    BannerKind::Info,
-                    &format!("Filter: {preview}"),
-                );
+                self.show_persistent_banner(BannerKind::Info, &format!("Filter: {preview}"));
             }
             _ => {}
         }
@@ -783,11 +821,12 @@ impl AppState {
                 if let Some(f) = self.filter_input.as_mut() {
                     f.pop();
                     let f_clone = f.clone();
-                    self.log_filter = if f_clone.is_empty() { None } else { Some(f_clone.clone()) };
-                    self.show_persistent_banner(
-                        BannerKind::Info,
-                        &format!("Filter: {f_clone}"),
-                    );
+                    self.log_filter = if f_clone.is_empty() {
+                        None
+                    } else {
+                        Some(f_clone.clone())
+                    };
+                    self.show_persistent_banner(BannerKind::Info, &format!("Filter: {f_clone}"));
                 }
             }
             fl_core::KeyEvent::Char(c) => {
@@ -797,10 +836,7 @@ impl AppState {
                     // Mirror into the active filter on every keystroke
                     // so the log view re-filters live as the user types.
                     self.log_filter = Some(f_clone.clone());
-                    self.show_persistent_banner(
-                        BannerKind::Info,
-                        &format!("Filter: {f_clone}"),
-                    );
+                    self.show_persistent_banner(BannerKind::Info, &format!("Filter: {f_clone}"));
                 }
             }
             _ => {}
@@ -863,8 +899,7 @@ fn sanitize_log_message(input: String) -> String {
     // etc. — disqualifies the input for the fast path. They all need
     // sanitisation either to strip a control sequence or to convert
     // the byte to a visible space.
-    let needs_work =
-        input.bytes().any(|b| b < 0x20) || input.chars().count() > MAX_LOG_LINE_CHARS;
+    let needs_work = input.bytes().any(|b| b < 0x20) || input.chars().count() > MAX_LOG_LINE_CHARS;
     if !needs_work {
         return input;
     }
@@ -925,7 +960,10 @@ fn strip_log_prefix(msg: &str) -> String {
             let inside = &rest[..close];
             // Only strip if it looks like a serial / hex tag, not a
             // bracketed regular word the user might want preserved.
-            if inside.chars().all(|c| c.is_ascii_hexdigit() || c == '-' || c == '_') {
+            if inside
+                .chars()
+                .all(|c| c.is_ascii_hexdigit() || c == '-' || c == '_')
+            {
                 return rest[close + 1..].trim().to_string();
             }
         }
@@ -971,7 +1009,12 @@ impl crate::view::View for AppState {
         AppState::apply(self, input);
     }
 
-    fn render(&self, area: ratatui::layout::Rect, buf: &mut ratatui::buffer::Buffer, theme: &crate::theme::Theme) {
+    fn render(
+        &self,
+        area: ratatui::layout::Rect,
+        buf: &mut ratatui::buffer::Buffer,
+        theme: &crate::theme::Theme,
+    ) {
         crate::render::render(area, buf, self, theme);
     }
 
@@ -1004,7 +1047,10 @@ mod tests {
         }));
         assert_eq!(s.active_sessions.len(), 1);
         assert_eq!(s.active_sessions[0].serial, "ABC");
-        assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Connecting);
+        assert_eq!(
+            s.active_sessions[0].state,
+            fl_core::DeviceSessionState::Connecting
+        );
     }
 
     #[test]
@@ -1062,8 +1108,13 @@ mod tests {
             serial: "ABC".into(),
             state: fl_core::DeviceSessionState::Ready,
         }));
-        s.apply(AppEvent::Device(DeviceEvent::Lost { serial: "ABC".into() }));
-        assert_eq!(s.active_sessions[0].state, fl_core::DeviceSessionState::Stopped);
+        s.apply(AppEvent::Device(DeviceEvent::Lost {
+            serial: "ABC".into(),
+        }));
+        assert_eq!(
+            s.active_sessions[0].state,
+            fl_core::DeviceSessionState::Stopped
+        );
     }
 
     #[test]
@@ -1076,7 +1127,13 @@ mod tests {
     #[test]
     fn frame_timing_pushes_fps_sample() {
         let mut s = AppState::new("app".into(), "debug".into());
-        s.apply(AppEvent::Vm { serial: String::new(), event: VmEvent::FrameTiming { ui_micros: 5_000, raster_micros: 11_000 } });
+        s.apply(AppEvent::Vm {
+            serial: String::new(),
+            event: VmEvent::FrameTiming {
+                ui_micros: 5_000,
+                raster_micros: 11_000,
+            },
+        });
         assert_eq!(s.fps_samples.len(), 1);
         let fps = *s.fps_samples.front().unwrap();
         assert!((fps - 62.5).abs() < 0.5);
@@ -1095,7 +1152,9 @@ mod tests {
     #[test]
     fn usb_disconnected_shows_a_banner() {
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(AppEvent::Device(DeviceEvent::UsbDisconnected { serial: "X".into() }));
+        s.apply(AppEvent::Device(DeviceEvent::UsbDisconnected {
+            serial: "X".into(),
+        }));
         assert!(s.banner.is_some());
     }
 
@@ -1114,7 +1173,10 @@ mod tests {
         let mut s = AppState::new("a".into(), "d".into());
         s.show_banner(BannerKind::Info, "transient");
         s.clear_persistent_banner();
-        assert!(s.banner.is_some(), "transient banner should survive clear_persistent_banner");
+        assert!(
+            s.banner.is_some(),
+            "transient banner should survive clear_persistent_banner"
+        );
 
         s.show_persistent_banner(BannerKind::Warn, "sticky");
         s.clear_persistent_banner();
@@ -1124,7 +1186,9 @@ mod tests {
     #[test]
     fn wifi_reconnecting_sets_persistent_warn_banner() {
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting { attempt: 3 }));
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting {
+            attempt: 3,
+        }));
         let b = s.banner.as_ref().expect("banner present");
         assert!(matches!(b.kind, BannerKind::Warn));
         assert!(b.duration.is_none(), "should be persistent");
@@ -1134,7 +1198,9 @@ mod tests {
     #[test]
     fn wifi_reconnected_clears_persistent_and_shows_success() {
         let mut s = AppState::new("a".into(), "d".into());
-        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting { attempt: 1 }));
+        s.apply(AppEvent::Device(DeviceEvent::WifiReconnecting {
+            attempt: 1,
+        }));
         s.apply(AppEvent::Device(DeviceEvent::WifiReconnected));
         let b = s.banner.as_ref().expect("banner present");
         assert!(matches!(b.kind, BannerKind::Success));
@@ -1181,10 +1247,7 @@ mod tests {
             strip_log_prefix("[00008140] Reloaded 1 of 2449 libraries in 313ms"),
             "Reloaded 1 of 2449 libraries in 313ms"
         );
-        assert_eq!(
-            strip_log_prefix("[ABC-DEF_123] hot reload"),
-            "hot reload"
-        );
+        assert_eq!(strip_log_prefix("[ABC-DEF_123] hot reload"), "hot reload");
         // No prefix → unchanged.
         assert_eq!(strip_log_prefix("daemon ready"), "daemon ready");
         // Bracketed non-hex tag → leave the prefix in place so we don't
