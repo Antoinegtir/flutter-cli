@@ -1,0 +1,66 @@
+name: Bug report
+description: Something `flutter run` / `test` / `build` does (or doesn't do) that it should.
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for filing a bug. The more concrete you can make this, the
+        faster it gets fixed. A 30-second screen recording usually beats a
+        100-word description.
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What did you do, what did you expect, what did you get?
+      placeholder: "I pressed `s` to capture screenshots of both devices, but only Android got a PNG. The iPhone session logged `screenshot failed: …`."
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: How can I reproduce it on my machine?
+      description: A short ordered list. If it involves a specific Flutter project, link it.
+      placeholder: |
+        1. `flutter create demo && cd demo`
+        2. Connect iPhone via USB.
+        3. `flutter run -d <udid>`
+        4. Press `s`.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      description: Press `c` in the TUI to copy the visible log buffer. Paste it here.
+      render: shell
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Output of `flutter-cli --version`.
+      placeholder: "flutter-cli 0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: shell
+    attributes:
+      label: Shell
+      options: [zsh, bash, fish, other]
+    validations:
+      required: true
+  - type: input
+    id: flutter-version
+    attributes:
+      label: Flutter version
+      description: Output of `flutter --version` (first line).
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      placeholder: "macOS 14.5 / Ubuntu 24.04 / …"
+    validations:
+      required: true

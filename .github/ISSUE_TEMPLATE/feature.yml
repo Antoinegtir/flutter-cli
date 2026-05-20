@@ -1,0 +1,44 @@
+name: Feature request
+description: Something `flutter run` makes painful and you wish `flutter-cli` made easy.
+title: "[feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The project's whole reason to exist is to fix daily Flutter dev pain
+        points. Tell us about yours — the more specific the use case, the more
+        likely it ships.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What's the pain?
+      description: What are you doing today that's slow / clunky / annoying?
+      placeholder: "Every time I want to test a UI on iPhone + Android side-by-side, I screenshot manually on each device and stitch them in Figma."
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would the ideal flow look like?
+      description: From the user's keystrokes to the produced artefact.
+      placeholder: "Press `Shift+S` → record a 5-second clip on every device → ffmpeg them into a side-by-side mp4 → land in `screenshots/<ts>/grid.mp4`."
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you've considered
+      description: Existing tools, hacks, workarounds. Helps us understand the gap.
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Surface area
+      options:
+        - flutter run
+        - flutter test
+        - flutter build
+        - flutter devices
+        - shell shim
+        - new top-level command
+        - other
