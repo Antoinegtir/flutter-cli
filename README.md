@@ -2,6 +2,12 @@
 
 # `flutter run`, but with superpowers.
 
+[![CI](https://github.com/Antoinegtir/flutter-cli/actions/workflows/ci.yml/badge.svg)](https://github.com/Antoinegtir/flutter-cli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Antoinegtir/flutter-cli?logo=github&color=brightgreen)](https://github.com/Antoinegtir/flutter-cli/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/Antoinegtir/flutter-cli/total?logo=github)](https://github.com/Antoinegtir/flutter-cli/releases)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Discussions](https://img.shields.io/github/discussions/Antoinegtir/flutter-cli?logo=github)](https://github.com/Antoinegtir/flutter-cli/discussions)
+
 A modern terminal UI for Flutter — hot reload across N devices, real-time perf, inline scrollback.
 Drops into your shell so `flutter run` *becomes* the dashboard. No new command to learn.
 
