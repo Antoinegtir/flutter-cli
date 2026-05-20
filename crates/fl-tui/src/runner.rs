@@ -457,7 +457,7 @@ impl TuiRunner {
         if !matches!(self.mode, ViewportMode::Inline) {
             return Ok(());
         }
-        let viewport_area = self.terminal.get_frame().size();
+        let viewport_area = self.terminal.get_frame().area();
         let rows_above = viewport_area.top();
         if rows_above == 0 {
             // No space above the viewport, can't print anything.
@@ -536,8 +536,8 @@ impl TuiRunner {
                 // on a fresh line rather than overwriting the TUI box.
                 // The viewport sits at `viewport_area.bottom() - 1` so
                 // we move to `viewport_area.bottom()` then newline.
-                let area = self.terminal.get_frame().size();
-                let _ = self.terminal.set_cursor(0, area.bottom().saturating_sub(1));
+                let area = self.terminal.get_frame().area();
+                let _ = self.terminal.set_cursor_position((0, area.bottom().saturating_sub(1)));
                 {
                     let backend = self.terminal.backend_mut();
                     write!(backend, "\r\n")?;
@@ -595,7 +595,7 @@ impl TuiRunner {
     /// DECSTBM to restrict its writes to the scrollback rows, so
     /// the viewport itself is left alone.
     fn repaint_scrollback(&mut self, state: &AppState, theme: &Theme) -> anyhow::Result<()> {
-        let viewport_area = self.terminal.get_frame().size();
+        let viewport_area = self.terminal.get_frame().area();
         let rows_above = viewport_area.top();
         if rows_above == 0 {
             return Ok(());
@@ -750,7 +750,7 @@ impl TuiRunner {
                 biased;
                 _ = tick.tick() => {
                     self.terminal.draw(|f| {
-                        render(f.size(), f.buffer_mut(), state, &theme);
+                        render(f.area(), f.buffer_mut(), state, &theme);
                     })?;
                 }
                 Some(Ok(term_ev)) = events.next() => {
@@ -847,7 +847,7 @@ impl TuiRunner {
                     let now = std::time::Instant::now();
                     view.tick(now - last_draw);
                     self.terminal.draw(|f| {
-                        view.render(f.size(), f.buffer_mut(), &theme);
+                        view.render(f.area(), f.buffer_mut(), &theme);
                     })?;
                     last_draw = now;
                 }
