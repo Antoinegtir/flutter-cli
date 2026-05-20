@@ -48,7 +48,7 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     let status_w = 4; // 200 / 404 / 500
     let dur_w = 7; // "  123ms"
     let hint_w = 3; // "  ↑↓" right-anchored on the header
-    let sep = 3 * 1; // three single spaces between 4 columns
+    let sep = 3; // three single spaces between 4 columns
     let url_w = w.saturating_sub(
         method_w + status_w + dur_w + sep + hint_w + 2, /* slack */
     );

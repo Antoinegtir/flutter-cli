@@ -877,7 +877,7 @@ fn connect_vm_service(
                             .get("endTime")
                             .and_then(serde_json::Value::as_u64)
                             .unwrap_or(start_us);
-                        let duration_ms = ((end_us.saturating_sub(start_us)) / 1000) as u64;
+                        let duration_ms = (end_us.saturating_sub(start_us)) / 1000;
                         net_tx
                             .send(AppEvent::Device(fl_core::DeviceEvent::HttpRequest {
                                 device: net_short.clone(),
@@ -1606,10 +1606,7 @@ pub async fn run_multi(
         // error. Returning an empty Vec lets the check below
         // short-circuit without bubbling a panicky "Error:" message
         // to the user.
-        match run_picker(&all_devices).await {
-            Ok(v) => v,
-            Err(_) => Vec::new(),
-        }
+        run_picker(&all_devices).await.unwrap_or_default()
     };
 
     if chosen.is_empty() {

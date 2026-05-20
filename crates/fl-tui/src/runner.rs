@@ -225,7 +225,7 @@ pub(crate) fn log_matches_filter(
 ) -> bool {
     let needle = match filter {
         None => return true,
-        Some(s) if s.is_empty() => return true,
+        Some("") => return true,
         Some(s) => s,
     };
     let needle_lower = needle.to_ascii_lowercase();
@@ -322,9 +322,11 @@ impl TuiRunner {
     ///      content up by that many rows
     ///   3. Anchoring a `Viewport::Fixed` rectangle at the bottom of
     ///      the terminal — no DSR query needed.
+    ///
     /// The visible behavior matches `Inline`. The cost is that we don't
     /// autoresize on terminal resize, which is acceptable for a CLI
     /// session that the user rarely resizes mid-run.
+    ///
     /// Default: no welcome banner. Used by transient inline UIs like
     /// the device picker and `fl test` — the banner should only appear
     /// for the main `fl run` session.
@@ -501,7 +503,7 @@ impl TuiRunner {
         // ephemeral after the first dozen lines.
         write!(backend, "\x1b[1;{rows_above}r")?;
         write!(backend, "\x1b[{rows_above};1H")?;
-        write!(backend, "\n")?;
+        writeln!(backend)?;
         write!(backend, "\r{sgr}{truncated}\x1b[0m")?;
         write!(backend, "\x1b[r")?;
         write!(backend, "\x1b8")?;
