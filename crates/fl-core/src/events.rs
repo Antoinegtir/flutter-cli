@@ -54,6 +54,10 @@ pub enum DeviceEvent {
         url: String,
         status: Option<u16>,
         duration_ms: Option<u64>,
+        /// Network-level error (e.g. "Connection refused"). Set when
+        /// the request completed without an HTTP response — distinct
+        /// from in-flight requests which have `duration_ms: None`.
+        error: Option<String>,
     },
     Error(String),
 }

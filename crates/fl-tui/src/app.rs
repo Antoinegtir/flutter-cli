@@ -164,11 +164,14 @@ pub struct NetworkRequest {
     pub method: String,
     /// Request URL (full, untruncated; rendering truncates).
     pub url: String,
-    /// Response status code, `None` while still in flight.
+    /// Response status code, `None` while still in flight or on error.
     pub status: Option<u16>,
     /// Duration in ms from request start to response end. `None`
     /// while in flight.
     pub duration_ms: Option<u64>,
+    /// Network-level error message (e.g. "Connection refused"). When
+    /// `Some`, the row is rendered in red regardless of `status`.
+    pub error: Option<String>,
 }
 
 /// Possible values for `AppState::brightness_state`.
@@ -414,6 +417,7 @@ impl AppState {
                 url,
                 status,
                 duration_ms,
+                error,
             } => {
                 // Append to the rolling buffer the Network panel
                 // reads from. Cap at NETWORK_RING to keep memory
@@ -424,6 +428,7 @@ impl AppState {
                     url,
                     status,
                     duration_ms,
+                    error,
                 });
                 while self.network_requests.len() > NETWORK_RING {
                     self.network_requests.pop_front();

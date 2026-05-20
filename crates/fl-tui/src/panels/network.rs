@@ -115,9 +115,18 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
     }
     for req in state.network_requests.iter().skip(from).take(to - from) {
         let url = truncate(&req.url, url_w);
-        let status_str = match req.status {
-            Some(s) => format!("{s}"),
-            None => "…".to_string(),
+        // A request is a network error when it completed (duration
+        // is known) but received no HTTP response — OR when Dart
+        // explicitly reported an error string.
+        let is_net_error =
+            req.error.is_some() || (req.status.is_none() && req.duration_ms.is_some());
+        let status_str = if is_net_error {
+            "ERR".to_string()
+        } else {
+            match req.status {
+                Some(s) => format!("{s}"),
+                None => "…".to_string(),
+            }
         };
         let dur_str = match req.duration_ms {
             Some(d) => format!("{d}ms"),
@@ -137,12 +146,12 @@ pub fn render_network(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Th
             s = status_w,
             d = dur_w
         );
-        lines.push(Line::styled(
-            line,
-            Style::default()
-                .fg(status_color(req.status, theme))
-                .bg(theme.bg),
-        ));
+        let color = if is_net_error {
+            theme.error
+        } else {
+            status_color(req.status, theme)
+        };
+        lines.push(Line::styled(line, Style::default().fg(color).bg(theme.bg)));
     }
     Paragraph::new(lines).render(inner, buf);
 }

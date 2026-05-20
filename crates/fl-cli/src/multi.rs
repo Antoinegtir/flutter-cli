@@ -869,6 +869,15 @@ fn connect_vm_service(
                             .and_then(|r| r.get("statusCode"))
                             .and_then(serde_json::Value::as_u64)
                             .map(|n| n as u16);
+                        // Dart surfaces network-level failures (connection
+                        // refused, timeout, TLS errors) in the top-level
+                        // `error` field of the profile entry. We propagate
+                        // this so the panel can colour the row red.
+                        let error = r
+                            .get("error")
+                            .and_then(serde_json::Value::as_str)
+                            .filter(|s| !s.is_empty())
+                            .map(str::to_owned);
                         let start_us = r
                             .get("startTime")
                             .and_then(serde_json::Value::as_u64)
@@ -885,6 +894,7 @@ fn connect_vm_service(
                                 url,
                                 status,
                                 duration_ms: Some(duration_ms),
+                                error,
                             }))
                             .await
                             .ok();
