@@ -1,4 +1,14 @@
 //! Drive the `fl` binary in headless mode against a faux flutter scenario.
+//!
+//! These tests exercise the binary end-to-end through `#!/bin/sh` fixture
+//! scripts that stand in for the real `flutter`, `adb` and `xcrun` tools,
+//! and they use Unix-isms (`/tmp` paths, `:` PATH separator, chmod +x).
+//! On Windows there's no `sh` on the runner and the fixtures wouldn't be
+//! invokable, so the whole module is gated to Unix. Cross-platform
+//! coverage of the parsing/event layers lives in the unit tests of each
+//! crate.
+
+#![cfg(unix)]
 
 use std::path::PathBuf;
 use std::process::{Command, Stdio};

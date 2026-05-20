@@ -113,7 +113,7 @@ pub async fn run(
         };
 
         let tx_out = tx.clone();
-        tokio::spawn(async move {
+        let out_task = tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 if let Some(ev) = parse_daemon_line(&line) {
@@ -131,7 +131,7 @@ pub async fn run(
         });
 
         let tx_err = tx.clone();
-        tokio::spawn(async move {
+        let err_task = tokio::spawn(async move {
             let mut lines = BufReader::new(stderr).lines();
             while let Ok(Some(line)) = lines.next_line().await {
                 tx_err
@@ -145,6 +145,14 @@ pub async fn run(
         });
 
         let status = child.wait().await.unwrap_or_default();
+        // `child.wait()` returns as soon as the OS process exits, but
+        // the stdout/stderr reader tasks may still be draining buffered
+        // bytes from the pipes. If we emit `Stopped` before they finish,
+        // a headless consumer (or the TUI) can race past the tail
+        // events — including the very `Built …` log line we want to
+        // surface. Join the readers first so they flush in order.
+        let _ = out_task.await;
+        let _ = err_task.await;
         tx.send(fl_core::FlutterEvent::Stopped {
             exit_code: status.code(),
         })
