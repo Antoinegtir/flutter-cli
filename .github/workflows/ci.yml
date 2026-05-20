@@ -17,6 +17,10 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  # actions/{checkout,upload-artifact,download-artifact}@v5 still ship
+  # Node 20 in some tags; opt in to Node 24 now so we don't get the
+  # deprecation warning on every run.
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
 
 jobs:
   lint:
