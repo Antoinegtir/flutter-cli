@@ -118,7 +118,14 @@ jobs:
             tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
           fi
           archive="dist/${stage}.${archive_ext}"
-          (cd dist && shasum -a 256 "${stage}.${archive_ext}" > "${stage}.${archive_ext}.sha256")
+          # `shasum` exists on macOS; `sha256sum` ships with coreutils on
+          # Linux and inside Git Bash on Windows runners. Pick whichever
+          # is on PATH so the same script works on all three.
+          if command -v sha256sum >/dev/null 2>&1; then
+            (cd dist && sha256sum "${stage}.${archive_ext}" > "${stage}.${archive_ext}.sha256")
+          else
+            (cd dist && shasum -a 256 "${stage}.${archive_ext}" > "${stage}.${archive_ext}.sha256")
+          fi
           echo "tarball=${archive}"            >> "$GITHUB_OUTPUT"
           echo "checksum=${archive}.sha256"    >> "$GITHUB_OUTPUT"
 
