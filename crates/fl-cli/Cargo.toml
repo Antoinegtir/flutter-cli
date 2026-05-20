@@ -1,13 +1,18 @@
 [package]
 name = "fl-cli"
 version = "0.1.0"
-description = "Modern Flutter CLI with seamless USB→WiFi hot reload"
+description = "Modern terminal UI for Flutter — hot reload across N devices, live HTTP/perf inspector, drops into your shell so 'flutter run' becomes the dashboard."
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
+readme = "../../README.md"
+keywords = ["flutter", "dart", "tui", "cli", "mobile"]
+# crates.io allows 5 categories. Picked for max search overlap with
+# devs looking for terminal tools / dev productivity.
+categories = ["command-line-utilities", "development-tools", "development-tools::debugging"]
 
 [[bin]]
 name = "flutter-cli"

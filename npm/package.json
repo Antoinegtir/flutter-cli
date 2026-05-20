@@ -1,0 +1,38 @@
+{
+  "name": "flutter-cli",
+  "version": "0.1.0",
+  "description": "Modern terminal UI for Flutter — hot reload across N devices, live HTTP/perf inspector, drops into your shell so 'flutter run' becomes the dashboard.",
+  "keywords": [
+    "flutter",
+    "dart",
+    "tui",
+    "cli",
+    "mobile",
+    "hot-reload",
+    "developer-tools"
+  ],
+  "homepage": "https://github.com/Antoinegtir/flutter-cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Antoinegtir/flutter-cli.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Antoinegtir/flutter-cli/issues"
+  },
+  "license": "MIT",
+  "author": "Antoine Gonthier",
+  "bin": {
+    "flutter-cli": "bin/flutter-cli.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin/",
+    "install.js",
+    "README.md"
+  ]
+}

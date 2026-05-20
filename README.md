@@ -18,7 +18,12 @@ Drops into your shell so `flutter run` *becomes* the dashboard. No new command t
 Works on **macOS, Linux and Windows**, with **bash, zsh, fish** and Git Bash / WSL on Windows.
 
 ```sh
+# curl + bash — drops the binary on your PATH and wires the shim.
 curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
+
+# Or via npm / npx — same binary, no shell rc changes:
+npx flutter-cli run                # one-shot, no install
+npm install -g flutter-cli          # global
 ```
 
 The installer drops a single helper on your `PATH` and adds **one line** to whichever shell config it detects (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`):
