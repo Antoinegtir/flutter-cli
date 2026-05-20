@@ -1,0 +1,19 @@
+# CODEOWNERS — auto-assign reviewers on every PR.
+#
+# Syntax: <path pattern>  <owner...>  (https://docs.github.com/repos/codeowners)
+# The last matching pattern wins, so put narrower rules below broader ones.
+
+# Catch-all: @Antoinegtir reviews everything by default.
+*                                       @Antoinegtir
+
+# Build / release plumbing — keep the maintainer in the loop on any
+# change that affects how binaries get cut.
+/.github/workflows/                     @Antoinegtir
+/Dockerfile                             @Antoinegtir
+/.dockerignore                          @Antoinegtir
+/install.sh                             @Antoinegtir
+/uninstall.sh                           @Antoinegtir
+
+# Security / policy docs.
+/SECURITY.md                            @Antoinegtir
+/.github/CODEOWNERS                     @Antoinegtir
