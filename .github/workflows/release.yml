@@ -56,11 +56,24 @@ jobs:
           # if that runner becomes flaky.
           - target: aarch64-unknown-linux-gnu
             runner: ubuntu-22.04-arm
+          # x86_64 Windows — MSVC toolchain. The `init` subcommand still
+          # works (bash/zsh/fish shims are invoked from WSL / Git Bash),
+          # and the TUI runs natively in Windows Terminal / ConPTY.
+          - target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            bin_ext: ".exe"
+            archive_ext: "zip"
+          # arm64 Windows — Surface / Snapdragon laptops.
+          - target: aarch64-pc-windows-msvc
+            runner: windows-latest
+            bin_ext: ".exe"
+            archive_ext: "zip"
 
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
+        shell: bash
         run: |
           rustup show
           rustup target add ${{ matrix.target }}
@@ -85,15 +98,25 @@ jobs:
           tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
           version="${tag#v}"
           target="${{ matrix.target }}"
+          bin_ext="${{ matrix.bin_ext }}"
+          archive_ext="${{ matrix.archive_ext }}"
+          [ -z "$archive_ext" ] && archive_ext="tar.gz"
           stage="flutter-cli-${version}-${target}"
           mkdir -p "dist/${stage}"
-          cp "target/${target}/release/flutter-cli" "dist/${stage}/"
+          cp "target/${target}/release/flutter-cli${bin_ext}" "dist/${stage}/"
           cp README.md "dist/${stage}/" 2>/dev/null || true
           cp LICENSE  "dist/${stage}/" 2>/dev/null || true
-          tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
-          (cd dist && shasum -a 256 "${stage}.tar.gz" > "${stage}.tar.gz.sha256")
-          echo "tarball=dist/${stage}.tar.gz"        >> "$GITHUB_OUTPUT"
-          echo "checksum=dist/${stage}.tar.gz.sha256" >> "$GITHUB_OUTPUT"
+          if [ "$archive_ext" = "zip" ]; then
+            # `7z` ships preinstalled on windows-latest runners and
+            # produces a deterministic zip without a deflate fallback.
+            (cd dist && 7z a -tzip "${stage}.zip" "${stage}" >/dev/null)
+          else
+            tar -C dist -czf "dist/${stage}.tar.gz" "${stage}"
+          fi
+          archive="dist/${stage}.${archive_ext}"
+          (cd dist && shasum -a 256 "${stage}.${archive_ext}" > "${stage}.${archive_ext}.sha256")
+          echo "tarball=${archive}"            >> "$GITHUB_OUTPUT"
+          echo "checksum=${archive}.sha256"    >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -129,8 +152,8 @@ jobs:
         run: |
           mkdir -p dist
           # `download-artifact` puts each artifact in its own folder;
-          # we want every tarball/checksum side-by-side for `gh release`.
-          find artifacts -type f \( -name "*.tar.gz" -o -name "*.sha256" \) -exec cp {} dist/ \;
+          # we want every archive/checksum side-by-side for `gh release`.
+          find artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" -o -name "*.sha256" \) -exec cp {} dist/ \;
           ls -lh dist/
 
       - name: Create or update GitHub Release

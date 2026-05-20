@@ -1,9 +1,13 @@
 name: ci
 
-# Runs on every push to main and every PR. Catches breakage before
-# release tags are cut. Kept lean — fmt + clippy + test on a single
-# runner so feedback is fast; release-pipeline does the cross-target
-# compilation.
+# Runs on every push to master/main and every PR. Catches breakage
+# before release tags are cut.
+#
+# Layout:
+#   - `lint` (ubuntu only) — fmt + clippy. Fast, no platform variance.
+#   - `test` (matrix linux/windows/macos) — `cargo test --workspace`
+#     so we notice when a change happens to compile on one OS but
+#     not another. The release workflow does the cross-target builds.
 on:
   push:
     branches: [master, main]
@@ -13,12 +17,16 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -D warnings
 
 jobs:
-  check:
-    name: fmt · clippy · test
+  lint:
+    name: fmt · clippy
     runs-on: ubuntu-latest
+    env:
+      # Treat warnings as errors here so clippy regressions block
+      # merges. Kept off the per-OS test job to avoid spurious
+      # failures from platform-specific allow-by-default lints.
+      RUSTFLAGS: -D warnings
     steps:
       - uses: actions/checkout@v4
 
@@ -34,7 +42,30 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --workspace --all-targets
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: test · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # We want to see every failing OS, not the first one only.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        shell: bash
+        run: rustup show
+
+      - name: Cache cargo registry + build
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.os }}
+
+      - name: cargo build (workspace)
+        run: cargo build --workspace --locked --all-targets
 
       - name: cargo test
         run: cargo test --workspace --locked

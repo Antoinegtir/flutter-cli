@@ -223,7 +223,12 @@ impl FlutterDaemon {
     }
 }
 
-#[cfg(test)]
+// The integration test below shells out to a `#!/bin/sh` script and
+// flips the file's executable bit via Unix `PermissionsExt`. On Windows
+// neither piece works — there's no `chmod` and `.sh` is not directly
+// runnable. The test stays unix-only; cross-platform coverage of the
+// daemon parsing path lives in `parse.rs` tests.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
     use tokio::sync::mpsc;
