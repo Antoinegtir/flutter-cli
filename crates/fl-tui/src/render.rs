@@ -438,7 +438,7 @@ mod tests {
             &state,
             &Theme::TOKYO_NIGHT,
         );
-        let header_cell = buf.get(1, 1);
+        let header_cell = &buf[(1, 1)];
         let _ = header_cell.symbol().to_owned();
     }
 
@@ -446,7 +446,7 @@ mod tests {
         let mut out = String::new();
         for y in 0..buf.area.height {
             for x in 0..buf.area.width {
-                out.push_str(buf.get(x, y).symbol());
+                out.push_str(buf[(x, y)].symbol());
             }
             out.push('\n');
         }
@@ -666,7 +666,7 @@ mod tests {
         let mut out = String::new();
         for y in 0..buf.area.height {
             for x in 0..buf.area.width {
-                out.push_str(buf.get(x, y).symbol());
+                out.push_str(buf[(x, y)].symbol());
             }
             out.push('\n');
         }
