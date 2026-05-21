@@ -73,14 +73,15 @@ fn detect_user_display_name() -> String {
 ///
 /// `width` is the terminal column count — the banner expands to fit
 /// the full terminal width, just like Claude Code's welcome box does.
-fn welcome_banner_lines(width: u16) -> Vec<String> {
-    // Tokyo Night-ish blue palette so the box sits well on dark
-    // terminals. We use 24-bit color (\x1b[38;2;R;G;Bm) — every
+fn welcome_banner_lines(width: u16, theme: &Theme) -> Vec<String> {
+    // Palette-driven so the banner stays readable on BOTH light and
+    // dark terminals. We use 24-bit color (\x1b[38;2;R;G;Bm) — every
     // modern terminal we care about (iTerm2, Terminal.app, Warp,
-    // Alacritty, Kitty, tmux ≥3.2) renders it correctly.
-    const B: &str = "\x1b[38;2;122;162;247m"; // box / accent
-    const T: &str = "\x1b[38;2;192;202;245m"; // primary text
-    const D: &str = "\x1b[38;2;105;120;170m"; // dim text (tips, urls)
+    // Alacritty, Kitty, Ghostty, tmux ≥3.2) renders it correctly.
+    let b = Theme::sgr_fg(theme.accent); // box / accent
+    let t = Theme::sgr_fg(theme.fg); // primary text
+    let d = Theme::sgr_fg(theme.dim); // dim text (tips, urls)
+    let (b, t, d) = (b.as_str(), t.as_str(), d.as_str());
     const BD: &str = "\x1b[1m"; // bold
     const R: &str = "\x1b[0m"; // reset
 
@@ -141,23 +142,23 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
         .saturating_sub(3)
         .saturating_sub(title.chars().count());
     out.push(format!(
-        "{B}╭─{BD}{title}{R}{B}{}╮{R}",
+        "{b}╭─{BD}{title}{R}{b}{}╮{R}",
         "─".repeat(dashes_after_title)
     ));
 
     // Padding row.
-    out.push(format!("{B}│{R}{}{B}│{R}", " ".repeat(inner_w)));
+    out.push(format!("{b}│{R}{}{b}│{R}", " ".repeat(inner_w)));
 
     for (art, right) in rows.iter() {
         // Style the right text. Bullet rows are dimmed; "Tips" and
         // the welcome line are bold/bright; everything else is plain
         // text in the brighter palette.
         let styled_right: String = if right.starts_with('•') {
-            format!("{D}{right}{R}")
+            format!("{d}{right}{R}")
         } else if right.is_empty() {
             String::new()
         } else {
-            format!("{BD}{T}{right}{R}")
+            format!("{BD}{t}{right}{R}")
         };
         // Pad the right column to its visible width so the closing
         // `│` lines up with the top/bottom borders even when the
@@ -165,17 +166,17 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
         let right_visible = right.chars().count();
         let right_pad = right_col_w.saturating_sub(right_visible);
         let line = format!(
-            "{B}│{R} {B}{art}{R}  {styled_right}{}{B} │{R}",
+            "{b}│{R} {b}{art}{R}  {styled_right}{}{b} │{R}",
             " ".repeat(right_pad)
         );
         out.push(line);
     }
 
     // Padding row.
-    out.push(format!("{B}│{R}{}{B}│{R}", " ".repeat(inner_w)));
+    out.push(format!("{b}│{R}{}{b}│{R}", " ".repeat(inner_w)));
 
     // Bottom border.
-    out.push(format!("{B}╰{}╯{R}", "─".repeat(inner_w)));
+    out.push(format!("{b}╰{}╯{R}", "─".repeat(inner_w)));
 
     out
 }
@@ -265,10 +266,17 @@ pub struct TuiRunner {
     /// `rows_above` the band is full and scrolling spills the oldest
     /// real line into the scrollback (classic `tail -f`).
     band_filled: u16,
+    /// Colour palette, chosen once at startup to match the terminal's
+    /// background (light vs dark). See `Theme::detect`.
+    theme: Theme,
 }
 
 impl TuiRunner {
     pub fn init() -> anyhow::Result<Self> {
+        // Detect the terminal background BEFORE we enter raw mode / the
+        // alternate screen — termbg runs its own OSC-11 query and tidies
+        // up after itself, so it must see a pristine terminal.
+        let theme = Theme::detect();
         enable_raw_mode()?;
         let mut stdout = std::io::stdout();
         execute!(stdout, EnterAlternateScreen)?;
@@ -301,6 +309,7 @@ impl TuiRunner {
             last_filter: None,
             inline_height: 0,
             band_filled: 0,
+            theme,
         })
     }
 
@@ -349,6 +358,9 @@ impl TuiRunner {
 
     fn init_inline_with_options(height: u16, show_banner: bool) -> anyhow::Result<Self> {
         use ratatui::layout::Rect;
+        // Detect background BEFORE raw mode (termbg runs its own OSC-11
+        // query and restores the terminal afterwards).
+        let theme = Theme::detect();
         enable_raw_mode()?;
         let mut stdout = std::io::stdout();
 
@@ -392,7 +404,7 @@ impl TuiRunner {
         // The welcome banner is opt-in: only `fl run` requests it via
         // `init_inline_with_banner`. Transient UIs (device picker,
         // `fl test`) call the plain `init_inline` and pass false.
-        let banner = welcome_banner_lines(cols);
+        let banner = welcome_banner_lines(cols, &theme);
         let banner_h = banner.len() as u16;
         let rows_above_viewport = rows.saturating_sub(effective_height);
         let banner_fits =
@@ -442,6 +454,7 @@ impl TuiRunner {
             // Logs then scroll the banner up cleanly without leaking
             // blank rows; everything above the banner stays untouched.
             band_filled: if banner_fits { banner_h } else { 0 },
+            theme,
         })
     }
 
@@ -750,7 +763,7 @@ impl TuiRunner {
         keys_tx: Sender<FlKey>,
     ) -> anyhow::Result<()> {
         use tokio::time::{interval, MissedTickBehavior};
-        let theme = Theme::TOKYO_NIGHT;
+        let theme = self.theme;
         let frame = Duration::from_millis(33);
         let mut tick = interval(frame);
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);
@@ -882,10 +895,9 @@ impl TuiRunner {
         view: &mut V,
         input_rx: &mut tokio::sync::mpsc::Receiver<V::Input>,
     ) -> anyhow::Result<()> {
-        use crate::theme::Theme;
         use futures_util::StreamExt;
         use tokio::time::{interval, MissedTickBehavior};
-        let theme = Theme::TOKYO_NIGHT;
+        let theme = self.theme;
         let frame = std::time::Duration::from_millis(33);
         let mut tick = interval(frame);
         tick.set_missed_tick_behavior(MissedTickBehavior::Skip);

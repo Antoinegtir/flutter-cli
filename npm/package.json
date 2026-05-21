@@ -1,7 +1,7 @@
 {
   "name": "@antoinegtir/flutter-cli",
-  "version": "0.2.0",
-  "binaryVersion": "0.2.0",
+  "version": "0.3.0",
+  "binaryVersion": "0.3.0",
   "description": "Modern terminal UI for Flutter — hot reload across N devices, live HTTP/perf inspector, drops into your shell so 'flutter run' becomes the dashboard.",
   "keywords": [
     "flutter",
