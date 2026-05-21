@@ -11,6 +11,23 @@ name: ci
 on:
   push:
     branches: [master, main]
+    # Skip CI for direct pushes that touch only non-code files — they
+    # can't break the build or tests, so a full matrix run is wasted.
+    # NOTE: applied to `push` only. On `pull_request` we keep running CI
+    # unconditionally, otherwise a PR that touches *only* ignored paths
+    # would leave the required status checks unreported and get stuck.
+    paths-ignore:
+      - "**.md"
+      - "Makefile"
+      - "LICENSE"
+      - ".gitignore"
+      - ".editorconfig"
+      - "docs/**"
+      - "npm/**"
+      - ".github/ISSUE_TEMPLATE/**"
+      - ".github/CODEOWNERS"
+      - ".github/dependabot.yml"
+      - ".github/FUNDING.yml"
   pull_request:
     branches: [master, main]
   workflow_dispatch:
