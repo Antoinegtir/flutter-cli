@@ -6,9 +6,6 @@ CLI_CRATE := fl-cli
 BIN       := flutter-cli
 NPM_DIR   := npm
 
-# Pass OTP for 2FA-protected npm publish: `make npm-publish OTP=123456`
-OTP ?=
-
 .DEFAULT_GOAL := help
 
 # ---------------------------------------------------------------------------
@@ -73,8 +70,8 @@ tag: ## Create + push a git tag from VERSION (e.g. `make tag VERSION=0.3.1`)
 	git push origin v$(VERSION)
 
 .PHONY: npm-publish
-npm-publish: ## Publish the npm wrapper (pass OTP=code for 2FA)
-	cd $(NPM_DIR) && npm publish --access public $(if $(OTP),--otp $(OTP),)
+npm-publish:
+	cd $(NPM_DIR) && npm publish --access public
 
 # ---------------------------------------------------------------------------
 # Housekeeping
