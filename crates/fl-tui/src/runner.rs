@@ -1,6 +1,6 @@
 //! Drives the TUI: render loop on a tick, drain `AppEvent` channel, handle key input.
 
-use crate::app::{AppState, LogLine};
+use crate::app::{AppState, BannerKind, LogLine};
 use crate::render::render;
 use crate::theme::Theme;
 use anyhow::Context;
@@ -130,8 +130,11 @@ fn welcome_banner_lines(width: u16) -> Vec<String> {
     let mut out: Vec<String> = Vec::with_capacity(16);
 
     // Top border with embedded title.
-    //   ╭─ fl v0.1.0 ────…────╮
-    let title = " fl v0.1.0 ";
+    //   ╭─ flutter-cli v0.1.0 ────…────╮
+    // Version is resolved at compile time from fl-tui's Cargo.toml,
+    // which we bump in lockstep with fl-cli. Avoids a stale hardcoded
+    // string drifting from the actual release.
+    let title = concat!(" flutter-cli v", env!("CARGO_PKG_VERSION"), " ");
     // Visible width breakdown: `╭` (1) + `─` (1) + title (N) + `─…─` (D) + `╮` (1) = width
     // → D = width - 3 - N.
     let dashes_after_title = (width as usize)
@@ -253,11 +256,15 @@ pub struct TuiRunner {
     /// terminal-resize events can recompute the viewport Rect against
     /// the new (cols, rows) instead of keeping the frozen startup one.
     inline_height: u16,
-    /// `true` when this Inline session was started via the `_with_banner`
-    /// variant. On resize we re-render the banner at the new terminal
-    /// width so the box doesn't end up half-erased or with the wrong
-    /// border length when the user shrinks/grows the window.
-    show_banner: bool,
+    /// Number of rows in the scrollback band (above the viewport) that
+    /// currently hold real content (logs + the startup banner), counted
+    /// from the bottom up. While this is below `rows_above`, the band
+    /// still has empty rows at the top, so `print_above_viewport`
+    /// scrolls ONLY the filled sub-region — never pushing those empty
+    /// rows into the terminal scrollback as blank lines. Once it reaches
+    /// `rows_above` the band is full and scrolling spills the oldest
+    /// real line into the scrollback (classic `tail -f`).
+    band_filled: u16,
 }
 
 impl TuiRunner {
@@ -293,7 +300,7 @@ impl TuiRunner {
             mode: ViewportMode::Fullscreen,
             last_filter: None,
             inline_height: 0,
-            show_banner: false,
+            band_filled: 0,
         })
     }
 
@@ -430,7 +437,11 @@ impl TuiRunner {
             mode: ViewportMode::Inline,
             last_filter: None,
             inline_height: effective_height,
-            show_banner,
+            // The banner (if painted) occupies the bottom `banner_h`
+            // rows of the band, so the band starts that-much "filled".
+            // Logs then scroll the banner up cleanly without leaking
+            // blank rows; everything above the banner stays untouched.
+            band_filled: if banner_fits { banner_h } else { 0 },
         })
     }
 
@@ -479,35 +490,32 @@ impl TuiRunner {
         let combined = format!("{prefix}{message}");
         let truncated: String = combined.chars().take(cols).collect();
 
+        // Grow the FILLED sub-region of the band by one row and scroll
+        // only that region — never the empty rows above it. While the
+        // band isn't full yet the region's top margin is > 1, so the
+        // (empty) row scrolled off the top is simply discarded rather
+        // than spilled into the terminal scrollback as a blank line —
+        // which is what produced the big block of blank lines the user
+        // saw above their logs. Once the band fills up (`new_filled ==
+        // rows_above`) the region becomes the whole band [1, rows_above]
+        // and the oldest REAL line spills into the scrollback, exactly
+        // like `tail -f`.
+        let new_filled = (self.band_filled + 1).min(rows_above);
+        let region_top = rows_above - new_filled + 1; // 1-indexed top margin
+
         let backend = self.terminal.backend_mut();
-        // 1. Save the cursor so ratatui's next draw resumes from where
-        //    it left off (not strictly required because ratatui uses
-        //    absolute MoveTo for every cell, but it costs nothing and
-        //    is the polite thing to do).
-        // 2. Set scroll region to rows 1..rows_above (DECSTBM is
-        //    1-indexed and inclusive on both ends).
-        // 3. Position cursor at the bottom of that region.
-        // 4. Emit LF — terminal scrolls the region's contents up by 1,
-        //    leaving the bottom row blank. Cursor stays at row
-        //    rows_above, col 1.
-        // 5. \r is implicit-ish (no, we need to emit it) — col 1 is
-        //    already where MoveTo put us, so we just write the text.
-        // 6. Reset scroll region to the full screen.
-        // 7. Restore cursor.
+        // Save cursor, scroll only the filled region up by one, write the
+        // new line at the bottom of the band, reset the scroll region,
+        // restore cursor.
         write!(backend, "\x1b7")?;
-        // Scroll region = the full band above the viewport. Logs
-        // scroll the entire band including the banner rows, so the
-        // welcome banner gradually rolls off the top as the app
-        // produces output. This is the conscious trade-off: more
-        // vertical room for logs at the cost of the banner being
-        // ephemeral after the first dozen lines.
-        write!(backend, "\x1b[1;{rows_above}r")?;
+        write!(backend, "\x1b[{region_top};{rows_above}r")?;
         write!(backend, "\x1b[{rows_above};1H")?;
         writeln!(backend)?;
         write!(backend, "\r{sgr}{truncated}\x1b[0m")?;
         write!(backend, "\x1b[r")?;
         write!(backend, "\x1b8")?;
         backend.flush()?;
+        self.band_filled = new_filled;
         Ok(())
     }
 
@@ -606,21 +614,14 @@ impl TuiRunner {
         let cols = cols_u16 as usize;
         let filter = state.log_filter.as_deref();
 
-        // Banner sits at the very top of the band when this is an
-        // `fl run`-style inline UI. We need to know how many rows it
-        // takes so we can both paint logs BELOW it and skip those rows
-        // when erasing — otherwise every filter change / resize would
-        // wipe the banner and the "header" of `fl run` would vanish.
-        let banner_lines: Vec<String> = if self.show_banner && cols_u16 >= BANNER_MIN_WIDTH {
-            let lines = welcome_banner_lines(cols_u16);
-            if (lines.len() as u16) <= rows_above {
-                lines
-            } else {
-                Vec::new()
-            }
-        } else {
-            Vec::new()
-        };
+        // The welcome banner is printed ONCE at startup (see
+        // `init_inline_with_options`) and then scrolls up naturally into
+        // the terminal's scrollback as logs arrive. We deliberately do
+        // NOT reprint it here: on a resize or filter change that would
+        // slam the banner back to the top of the band, covering the most
+        // recent logs the user is actually watching. So the band is
+        // logs-only — the banner lives purely in scrollback history.
+        let banner_lines: Vec<String> = Vec::new();
         let banner_h = banner_lines.len() as u16;
 
         // Logs occupy the rows BELOW the banner, anchored to the bottom
@@ -675,6 +676,11 @@ impl TuiRunner {
 
         write!(backend, "\x1b8")?;
         backend.flush()?;
+        // The band now holds exactly `tail_len` real log rows (anchored
+        // to the bottom). Record that so subsequent `print_above_viewport`
+        // calls scroll only the filled region and don't leak the blank
+        // rows above into the scrollback.
+        self.band_filled = tail_len as u16;
         Ok(())
     }
 
@@ -703,18 +709,27 @@ impl TuiRunner {
                 Rect::new(0, rows.saturating_sub(h), cols, h)
             }
         };
-        // Step 1: wipe both the visible screen AND the terminal's
-        // scrollback buffer. The `\x1b[2J` clears what's currently
-        // on screen; `\x1b[3J` (xterm extension, supported by every
-        // modern terminal we care about) wipes the off-screen
-        // scrollback too. The scrollback wipe is critical when the
-        // user grows the terminal vertically — without it, every
-        // viewport position we've ever drawn at (now scrolled out
-        // of view) re-appears at the top of the screen, producing
-        // a column of stacked dashboards.
+        // Step 1: reset any DECSTBM scroll region left set by
+        // `print_above_viewport` so the band repaint below addresses
+        // absolute rows.
+        //
+        // We deliberately DO NOT clear the visible screen (`\x1b[2J`)
+        // or the scrollback (`\x1b[3J`) here:
+        //   * `\x1b[2J` — outside the alternate screen, Terminal.app /
+        //     iTerm2 / Ghostty SCROLL the screen into the scrollback
+        //     instead of discarding it, leaving one stacked copy of the
+        //     dashboard per resize.
+        //   * `\x1b[3J` — wipes the ENTIRE scrollback, destroying the
+        //     user's Flutter log history. They expect to scroll up and
+        //     read it after a resize, not lose it.
+        //
+        // Instead, the viewport region is cleared by `terminal.resize` /
+        // `clear` below, and the band above is cleared row-by-row
+        // (`\x1b[2K`) and repainted by `repaint_scrollback` — neither of
+        // which touches the scrollback buffer.
         {
             let backend = self.terminal.backend_mut();
-            write!(backend, "\x1b[3J\x1b[2J\x1b[H")?;
+            write!(backend, "\x1b[r")?;
             backend.flush()?;
         }
         // Step 2: tell ratatui about the new geometry and invalidate
@@ -723,10 +738,8 @@ impl TuiRunner {
         // the stale cached value).
         self.terminal.resize(new_area)?;
         self.terminal.clear()?;
-        // The band above the viewport (banner + logs) is repainted by
-        // the run loop's call to `repaint_scrollback` immediately after
-        // this — it handles both banner and log placement so the order
-        // is guaranteed and they don't fight over the same rows.
+        // The band above the viewport (logs) is repainted by the run
+        // loop's call to `repaint_scrollback` immediately after this.
         Ok(())
     }
 
@@ -751,6 +764,22 @@ impl TuiRunner {
             tokio::select! {
                 biased;
                 _ = tick.tick() => {
+                    // Belt-and-suspenders resize: poll the real terminal
+                    // size every frame and reflow if it changed. The
+                    // `Event::Resize` arm below is faster, but crossterm
+                    // delivers it via SIGWINCH which isn't reliable in
+                    // every terminal / multiplexer — and can be stolen by
+                    // the `flutter` child if it grabs the foreground
+                    // process group. Polling the tty ioctl always works.
+                    // The size-change guard makes this a no-op when the
+                    // Resize event already handled it, so they don't fight.
+                    if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let area = self.terminal.get_frame().area();
+                        if cols != area.width || rows != area.bottom() {
+                            let _ = self.handle_resize(cols, rows);
+                            let _ = self.repaint_scrollback(state, &theme);
+                        }
+                    }
                     self.terminal.draw(|f| {
                         render(f.area(), f.buffer_mut(), state, &theme);
                     })?;
@@ -790,16 +819,41 @@ impl TuiRunner {
                         // the filter would also fire `[r] reload`,
                         // `[e] …`, etc.
                         let was_filtering = state.filter_input.is_some();
-                        state.on_key(k);
-                        let is_filtering = state.filter_input.is_some();
-                        // The filter may have just changed — repaint
-                        // the scrollback band above the viewport with
-                        // the (newly-filtered) tail of state.logs.
-                        self.refresh_filter_view(state, &theme);
-                        if !was_filtering && !is_filtering {
-                            // Normal mode in, normal mode out — safe
-                            // to fire any global keybinds (r/R/b/…).
-                            let _ = keys_tx.try_send(k);
+                        // Device-control keys (reload/restart/theme/paint/
+                        // perf/platform/screenshot/devtools) drive a VM
+                        // Service that doesn't exist until a device is
+                        // running. Swallow them with a hint until then —
+                        // both the local toggle (`on_key`) and the daemon
+                        // broadcast (`keys_tx`). Exempt while typing a
+                        // filter: those chars must reach the filter buffer.
+                        if !was_filtering && is_device_key(k) && !state.app_ready() {
+                            state.show_banner(
+                                BannerKind::Warn,
+                                "⏳ Waiting for device to build…",
+                            );
+                        } else {
+                            state.on_key(k);
+                            let is_filtering = state.filter_input.is_some();
+                            // The filter may have just changed — repaint
+                            // the scrollback band above the viewport with
+                            // the (newly-filtered) tail of state.logs.
+                            self.refresh_filter_view(state, &theme);
+                            // Just EXITED filter mode (Enter/Esc). Force a
+                            // fresh repaint unconditionally: the committing
+                            // keystroke often doesn't itself change
+                            // `log_filter` (e.g. the user backspaced to
+                            // empty earlier, then pressed Enter), so the
+                            // guarded `refresh_filter_view` above would skip
+                            // it and leave the old filtered view frozen.
+                            if was_filtering && !is_filtering {
+                                self.last_filter = state.log_filter.clone();
+                                let _ = self.repaint_scrollback(state, &theme);
+                            }
+                            if !was_filtering && !is_filtering {
+                                // Normal mode in, normal mode out — safe
+                                // to fire any global keybinds (r/R/b/…).
+                                let _ = keys_tx.try_send(k);
+                            }
                         }
                     }
                 }
@@ -846,6 +900,14 @@ impl TuiRunner {
             tokio::select! {
                 biased;
                 _ = tick.tick() => {
+                    // See `run()` for why we poll the size each frame
+                    // instead of relying solely on `Event::Resize`.
+                    if let Ok((cols, rows)) = crossterm::terminal::size() {
+                        let area = self.terminal.get_frame().area();
+                        if cols != area.width || rows != area.bottom() {
+                            let _ = self.handle_resize(cols, rows);
+                        }
+                    }
                     let now = std::time::Instant::now();
                     view.tick(now - last_draw);
                     self.terminal.draw(|f| {
@@ -882,6 +944,26 @@ impl TuiRunner {
         }
         Ok(())
     }
+}
+
+/// Keys that act on a running device via the VM Service / daemon:
+/// hot reload/restart, theme, debug paint, platform override, perf
+/// overlay, screenshot, DevTools. They're meaningless until a device
+/// is actually running (`app_ready`), so the run loop swallows them
+/// until then. Local-only keys (scroll, quit, copy, filter, `n`
+/// panel toggle) are NOT in this set and always work.
+fn is_device_key(k: FlKey) -> bool {
+    matches!(
+        k,
+        FlKey::Char('r')
+            | FlKey::Char('R')
+            | FlKey::Char('b')
+            | FlKey::Char('p')
+            | FlKey::Char('P')
+            | FlKey::Char('o')
+            | FlKey::Char('s')
+            | FlKey::Char('d')
+    )
 }
 
 pub fn map_key(ev: Event) -> Option<FlKey> {

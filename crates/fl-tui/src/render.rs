@@ -202,7 +202,7 @@ fn render_header(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         _ => "⚙️",
     };
     let title_text = format!(
-        " {brightness_icon}  fl ── {} · {} · {}",
+        " {brightness_icon}  flutter-cli ── {} · {} · {}",
         state.app_name, state.mode, device
     );
     let title = truncate_to_width(&title_text, cols[0].width as usize);
