@@ -610,7 +610,7 @@ checksum = "0ce7134b9999ecaf8bcd65542e436736ef32ddca1b3e06094cb6ec5755203b80"
 
 [[package]]
 name = "fl-adb"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -624,7 +624,7 @@ dependencies = [
 
 [[package]]
 name = "fl-cli"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -647,7 +647,7 @@ dependencies = [
 
 [[package]]
 name = "fl-core"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "clap",
  "directories",
@@ -659,7 +659,7 @@ dependencies = [
 
 [[package]]
 name = "fl-flutter"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "fl-core",
@@ -672,7 +672,7 @@ dependencies = [
 
 [[package]]
 name = "fl-ios"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -686,7 +686,7 @@ dependencies = [
 
 [[package]]
 name = "fl-tui"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "chrono",
@@ -703,7 +703,7 @@ dependencies = [
 
 [[package]]
 name = "fl-vmservice"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "anyhow",
  "fl-core",

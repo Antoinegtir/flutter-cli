@@ -1,6 +1,6 @@
 [package]
 name = "fl-cli"
-version = "0.4.0"
+version = "0.4.1"
 description = "Modern terminal UI for Flutter — hot reload across N devices, live HTTP/perf inspector, drops into your shell so 'flutter run' becomes the dashboard."
 edition.workspace = true
 rust-version.workspace = true
