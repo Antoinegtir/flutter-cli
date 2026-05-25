@@ -8,8 +8,11 @@ use anyhow::Context;
 use std::process::Stdio;
 
 pub async fn run(args: Vec<String>) -> anyhow::Result<()> {
-    let flutter =
-        crate::multi::resolve_flutter_path().context("locating flutter binary for pass-through")?;
+    // Resolve relative to the current directory so pass-through commands
+    // (`flutter pub get`, etc.) honour the project's pinned FVM version too.
+    let project = std::env::current_dir().context("getting current directory")?;
+    let flutter = crate::multi::resolve_flutter_path(&project)
+        .context("locating flutter binary for pass-through")?;
     let status = tokio::process::Command::new(&flutter)
         .args(&args)
         .stdin(Stdio::inherit())

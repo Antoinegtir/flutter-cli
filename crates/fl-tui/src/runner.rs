@@ -73,7 +73,7 @@ fn detect_user_display_name() -> String {
 ///
 /// `width` is the terminal column count — the banner expands to fit
 /// the full terminal width, just like Claude Code's welcome box does.
-fn welcome_banner_lines(width: u16, theme: &Theme) -> Vec<String> {
+fn welcome_banner_lines(width: u16, theme: &Theme, versions: Option<(&str, &str)>) -> Vec<String> {
     // Palette-driven so the banner stays readable on BOTH light and
     // dark terminals. We use 24-bit color (\x1b[38;2;R;G;Bm) — every
     // modern terminal we care about (iTerm2, Terminal.app, Warp,
@@ -118,7 +118,10 @@ fn welcome_banner_lines(width: u16, theme: &Theme) -> Vec<String> {
             "       =====#       ",
             "• [b] theme        [P] perf overlay".to_string(),
         ),
-        ("         =#####     ", "• [/] filter live".to_string()),
+        (
+            "         =#####     ",
+            "• [/] filter live  [n] network".to_string(),
+        ),
         (
             "           ######   ",
             "• [c] copy         [q] quit".to_string(),
@@ -135,7 +138,15 @@ fn welcome_banner_lines(width: u16, theme: &Theme) -> Vec<String> {
     // Version is resolved at compile time from fl-tui's Cargo.toml,
     // which we bump in lockstep with fl-cli. Avoids a stale hardcoded
     // string drifting from the actual release.
-    let title = concat!(" flutter-cli v", env!("CARGO_PKG_VERSION"), " ");
+    // When the SDK versions are known, surface them right after the CLI
+    // name in the title bar: ` flutter-cli v0.3.0 · Flutter 3.41.9 · Dart 3.11.5 `.
+    let title = match versions {
+        Some((flutter_v, dart_v)) => format!(
+            " flutter-cli v{} · Flutter {flutter_v} · Dart {dart_v} ",
+            env!("CARGO_PKG_VERSION")
+        ),
+        None => concat!(" flutter-cli v", env!("CARGO_PKG_VERSION"), " ").to_string(),
+    };
     // Visible width breakdown: `╭` (1) + `─` (1) + title (N) + `─…─` (D) + `╮` (1) = width
     // → D = width - 3 - N.
     let dashes_after_title = (width as usize)
@@ -347,16 +358,26 @@ impl TuiRunner {
     /// the device picker and `fl test` — the banner should only appear
     /// for the main `fl run` session.
     pub fn init_inline(height: u16) -> anyhow::Result<Self> {
-        Self::init_inline_with_options(height, false)
+        Self::init_inline_with_options(height, false, None)
     }
 
     /// Inline TUI for `fl run`: prints the bordered welcome banner
     /// into the scrollback immediately above the viewport at startup.
-    pub fn init_inline_with_banner(height: u16) -> anyhow::Result<Self> {
-        Self::init_inline_with_options(height, true)
+    ///
+    /// `versions` is the resolved SDK's `(flutter, dart)` version pair,
+    /// surfaced in the banner title bar when known.
+    pub fn init_inline_with_banner(
+        height: u16,
+        versions: Option<(String, String)>,
+    ) -> anyhow::Result<Self> {
+        Self::init_inline_with_options(height, true, versions)
     }
 
-    fn init_inline_with_options(height: u16, show_banner: bool) -> anyhow::Result<Self> {
+    fn init_inline_with_options(
+        height: u16,
+        show_banner: bool,
+        versions: Option<(String, String)>,
+    ) -> anyhow::Result<Self> {
         use ratatui::layout::Rect;
         // Detect background BEFORE raw mode (termbg runs its own OSC-11
         // query and restores the terminal afterwards).
@@ -404,7 +425,13 @@ impl TuiRunner {
         // The welcome banner is opt-in: only `fl run` requests it via
         // `init_inline_with_banner`. Transient UIs (device picker,
         // `fl test`) call the plain `init_inline` and pass false.
-        let banner = welcome_banner_lines(cols, &theme);
+        let banner = welcome_banner_lines(
+            cols,
+            &theme,
+            versions
+                .as_ref()
+                .map(|(flutter_v, dart_v)| (flutter_v.as_str(), dart_v.as_str())),
+        );
         let banner_h = banner.len() as u16;
         let rows_above_viewport = rows.saturating_sub(effective_height);
         let banner_fits =
@@ -1025,6 +1052,40 @@ mod tests {
             kind: KeyEventKind::Press,
             state: crossterm::event::KeyEventState::NONE,
         })
+    }
+
+    #[test]
+    fn banner_title_shows_sdk_versions_when_known() {
+        let lines = welcome_banner_lines(120, &Theme::TOKYO_NIGHT, Some(("3.41.9", "3.11.5")));
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("Flutter 3.41.9 · Dart 3.11.5"),
+            "title should carry SDK versions:\n{joined}"
+        );
+    }
+
+    #[test]
+    fn banner_title_omits_versions_when_unknown() {
+        let lines = welcome_banner_lines(120, &Theme::TOKYO_NIGHT, None);
+        let joined = lines.join("\n");
+        assert!(
+            !joined.contains("· Flutter "),
+            "no SDK version line when unknown"
+        );
+        assert!(
+            joined.contains("flutter-cli v"),
+            "still shows the CLI version"
+        );
+    }
+
+    #[test]
+    fn banner_tips_include_network_inspector() {
+        let lines = welcome_banner_lines(120, &Theme::TOKYO_NIGHT, None);
+        let joined = lines.join("\n");
+        assert!(
+            joined.contains("[n] network"),
+            "tips should mention the [n] network inspector:\n{joined}"
+        );
     }
 
     #[test]

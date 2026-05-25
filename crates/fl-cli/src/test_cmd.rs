@@ -89,6 +89,7 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
     }
     let flutter = resolve_flutter(
         None,
+        Some(project.as_path()),
         std::env::var("FLUTTER_ROOT").ok().as_deref(),
         dirs_home(),
     )

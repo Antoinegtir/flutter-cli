@@ -1217,9 +1217,10 @@ fn compact_json(v: &serde_json::Value) -> String {
     }
 }
 
-pub fn resolve_flutter_path() -> anyhow::Result<PathBuf> {
+pub fn resolve_flutter_path(project: &Path) -> anyhow::Result<PathBuf> {
     resolve_flutter(
         None,
+        Some(project),
         std::env::var("FLUTTER_ROOT").ok().as_deref(),
         dirs_home(),
     )
@@ -1559,7 +1560,7 @@ pub async fn run_multi(
     extra: Vec<String>,
 ) -> anyhow::Result<()> {
     let project = project.unwrap_or_else(|| std::env::current_dir().unwrap());
-    let flutter = resolve_flutter_path()?;
+    let flutter = resolve_flutter_path(&project)?;
     let runner = Arc::new(TokioRunner);
 
     // Startup sweep: kill any leftover `iproxy` zombies from a
@@ -1816,7 +1817,9 @@ pub async fn run_multi(
     // (1) + margin. Logs are NOT inside the viewport — they're
     // printed above it via `TuiRunner::print_above_viewport` so they
     // scroll naturally with the rest of the terminal.
-    let mut tui = TuiRunner::init_inline_with_banner(16)?;
+    // Surface the resolved SDK's Flutter/Dart versions in the banner title.
+    let sdk_versions = fl_flutter::sdk_versions(&flutter).map(|v| (v.flutter, v.dart));
+    let mut tui = TuiRunner::init_inline_with_banner(16, sdk_versions)?;
     let (keys_tx, mut keys_rx) = mpsc::channel::<FlKey>(16);
 
     // Key dispatcher: each keystroke from the TUI is broadcast to every
