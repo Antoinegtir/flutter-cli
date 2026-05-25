@@ -617,7 +617,7 @@ dependencies = [
  "bytes",
  "fl-core",
  "mdns-sd",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
@@ -653,7 +653,7 @@ dependencies = [
  "directories",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "toml",
 ]
 
@@ -665,7 +665,7 @@ dependencies = [
  "fl-core",
  "serde",
  "serde_json",
- "thiserror 1.0.69",
+ "thiserror 2.0.18",
  "tokio",
  "tracing",
 ]
