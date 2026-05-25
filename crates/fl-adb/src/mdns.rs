@@ -4,7 +4,7 @@
 //! filters by device name, and forwards new IPv4 addresses as Reconnect inputs.
 
 use crate::reconnect::Input as ReconnectInput;
-use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use std::net::IpAddr;
 use tokio::sync::mpsc::Sender;
 use tokio::task::JoinHandle;
@@ -13,8 +13,8 @@ pub const SERVICE_TYPES: &[&str] = &["_adb-tls-connect._tcp.local.", "_adb._tcp.
 
 /// Extracts the first non-loopback IPv4 from a resolved service.
 /// Returns `None` if no suitable address is present.
-pub fn pick_ipv4(info: &ServiceInfo) -> Option<String> {
-    info.get_addresses().iter().find_map(|a| match a {
+pub fn pick_ipv4(rs: &ResolvedService) -> Option<String> {
+    rs.addresses.iter().find_map(|a| match a.to_ip_addr() {
         IpAddr::V4(v4) if !v4.is_loopback() => Some(v4.to_string()),
         _ => None,
     })
@@ -24,14 +24,14 @@ pub fn pick_ipv4(info: &ServiceInfo) -> Option<String> {
 /// Matches when:
 ///  - the `name` TXT property equals `device_name` (case-insensitive), OR
 ///  - the service `fullname` contains the device name slug.
-pub fn matches_device(info: &ServiceInfo, device_name: &str) -> bool {
+pub fn matches_device(rs: &ResolvedService, device_name: &str) -> bool {
     let target = device_name.trim().to_ascii_lowercase().replace(' ', "_");
-    if let Some(name) = info.get_property_val_str("name") {
+    if let Some(name) = rs.get_property_val_str("name") {
         if name.trim().eq_ignore_ascii_case(device_name) {
             return true;
         }
     }
-    info.get_fullname().to_ascii_lowercase().contains(&target)
+    rs.fullname.to_ascii_lowercase().contains(&target)
 }
 
 /// Start the mDNS browser; forward `IpDiscovered` to `reconnect_tx`.
@@ -72,12 +72,15 @@ pub fn spawn(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mdns_sd::ServiceInfo;
     use std::collections::HashMap;
 
-    /// Test helper: build a `ServiceInfo` using the 0.11.x constructor.
+    /// Test helper: build a `ResolvedService` via the `ServiceInfo`
+    /// constructor + `as_resolved_service`, so tests exercise the same
+    /// type the browser yields at runtime in mdns-sd 0.20.
     /// `addrs` is a comma-joined string (e.g. "127.0.0.1,192.168.1.42").
     /// `name_prop` is optional; when `Some`, it is inserted into the TXT properties as "name".
-    fn info(my_name: &str, name_prop: Option<&str>, addrs: &[&str]) -> ServiceInfo {
+    fn info(my_name: &str, name_prop: Option<&str>, addrs: &[&str]) -> ResolvedService {
         let addr_str = addrs.join(",");
         let props: Option<HashMap<String, String>> = name_prop.map(|n| {
             let mut m = HashMap::new();
@@ -93,6 +96,7 @@ mod tests {
             props,
         )
         .unwrap()
+        .as_resolved_service()
     }
 
     #[test]

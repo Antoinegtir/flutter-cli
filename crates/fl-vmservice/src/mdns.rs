@@ -7,7 +7,7 @@
 //! session over from USB (`usbmuxd` tunnel) to direct Wi-Fi when the
 //! cable is pulled.
 
-use mdns_sd::{ServiceDaemon, ServiceEvent, ServiceInfo};
+use mdns_sd::{ResolvedService, ServiceDaemon, ServiceEvent};
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::{Arc, Mutex};
@@ -99,21 +99,21 @@ pub fn spawn_browser() -> anyhow::Result<(AdCache, JoinHandle<()>)> {
     Ok((cache, handle))
 }
 
-fn make_ad(info: &ServiceInfo) -> Option<VmServiceAd> {
-    let port = info.get_port();
+fn make_ad(info: &ResolvedService) -> Option<VmServiceAd> {
+    let port = info.port;
     // Devices often advertise multiple IPv4s (real LAN + Tailscale CGNAT
     // + carrier NAT, etc.). Pick the one most likely to actually be
     // reachable end-to-end: RFC1918 private LAN > Tailscale > everything
     // else. Without this we end up trying to talk to e.g. a 100.x CGNAT
     // address when a clean 192.168.x is sitting in the same record.
     let ip = info
-        .get_addresses()
+        .addresses
         .iter()
-        .filter_map(|a| match a {
+        .filter_map(|a| match a.to_ip_addr() {
             IpAddr::V4(v4) if !v4.is_loopback() && !v4.is_link_local() => Some(v4),
             _ => None,
         })
-        .map(|v4| (v4.to_string(), ipv4_priority(v4)))
+        .map(|v4| (v4.to_string(), ipv4_priority(&v4)))
         .max_by_key(|(_, score)| *score)
         .map(|(s, _)| s)?;
     let auth_code = info.get_property_val_str("authCode").map(str::to_string);
@@ -121,7 +121,7 @@ fn make_ad(info: &ServiceInfo) -> Option<VmServiceAd> {
         ip,
         port,
         auth_code,
-        fullname: info.get_fullname().to_string(),
+        fullname: info.fullname.clone(),
     })
 }
 
