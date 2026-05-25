@@ -18,6 +18,14 @@ Drops into your shell so `flutter run` *becomes* the dashboard. No new command t
 
 ---
 
+## Requirements
+
+- A **Flutter SDK** on your `PATH` (or via [FVM](https://fvm.app) / `FLUTTER_ROOT`) — `flutter-cli` wraps your existing `flutter`, it doesn't ship one.
+- macOS, Linux, or Windows — bash, zsh, fish, or Git Bash / WSL.
+- iOS-specific features (per-device screenshots, etc.) are macOS-only and need Xcode's command-line tools (`xcrun`).
+
+---
+
 ## Install
 
 Works on **macOS, Linux and Windows**, with **bash, zsh, fish** and Git Bash / WSL on Windows.
@@ -50,6 +58,10 @@ flutter run
 ### Don't want a shim?
 
 You can also call the binary directly — `flutter-cli run`, `flutter-cli test`, `flutter-cli build`. Same TUI, no shell wiring needed. Handy on CI runners or locked-down corporate machines where rc files are off-limits.
+
+### Works with FVM
+
+Using [FVM](https://fvm.app)? Just run `flutter run` — `flutter-cli` automatically uses the version your project is pinned to. It resolves the `.fvm/flutter_sdk` symlink first (also what your IDE reads), then falls back to `.fvmrc` / the legacy `.fvm/fvm_config.json` against `~/fvm/versions`, before anything else on your `PATH`. No `fvm flutter` prefix needed, and the resolved Flutter/Dart versions show up in the dashboard header.
 
 ---
 
@@ -204,7 +216,7 @@ flutter test integration_test/ --basic
 flutter build apk --basic --release
 ```
 
-No `--machine`, no JSON parsing, no per-device prefix — exactly the same logs you'd get if `fl` weren't on your `PATH`. The shim still picks up the rest of the `flutter` subcommands.
+No `--machine`, no JSON parsing, no per-device prefix — exactly the same logs you'd get if `flutter-cli` weren't on your `PATH`. The shim still picks up the rest of the `flutter` subcommands.
 
 ---
 
@@ -280,17 +292,6 @@ docker run --rm -it \
 ```
 
 The image **does not** bundle the Flutter SDK — it's huge, version-sensitive, and you almost certainly already have one. Mount yours at `/opt/flutter` and put it on `PATH`. Android USB devices need `--device /dev/bus/usb` and appropriate udev rules on the host. iOS device interaction stays macOS-only (needs `xcrun`).
-
----
-
-## Roadmap
-
-- **Wi-Fi takeover on USB unplug** (Android — already pre-pairs; iOS work-in-progress).
-- **VS Code / Android Studio integration** so the TUI fires inside IDEs too.
-- **Recorded perf traces** export (Devtools JSON).
-- **Watch mode** for `flutter test` (re-run on file change).
-
-Open an issue if you have a use case `flutter run` makes painful — that's exactly what this project is for.
 
 ---
 
