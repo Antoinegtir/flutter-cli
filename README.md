@@ -97,10 +97,6 @@ When several devices are connected, an interactive picker shows up — multi-sel
 
 Once you've picked, the dashboard shows one performance block per device with live FPS / memory sparklines:
 
-![Multi-device dashboard](docs/screenshots/run.png)
-
-Per-device, the Performance panel breaks down FPS, frame timings (ui / raster), jank ratio and memory pressure independently — so you can tell *which* device just dropped to 30 fps without squinting:
-
 ![Per-device performance panel](docs/screenshots/performance.png)
 
 While running:
