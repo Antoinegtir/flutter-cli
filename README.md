@@ -13,6 +13,25 @@ A modern terminal UI for Flutter — hot reload across N devices, real-time perf
 
 </div>
 
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
+```
+or:
+```sh
+npm i -g @antoinegtir/flutter-cli
+```
+
+The installer drops a binary on your `PATH` and adds one line to your shell rc:
+```sh
+eval "$(flutter-cli init <bash|zsh|fish>)"
+```
+
+That routes `flutter run` / `test` / `build` / `devices` through the TUI. Your IDE keeps using vanilla `flutter`; everything else (`flutter pub`, `doctor`, `clean`, …) passes through unchanged.
+
+**Requirements:** an existing Flutter SDK reachable via `PATH`, [FVM](https://fvm.app), or `$FLUTTER_ROOT`. macOS / Linux / Windows (bash, zsh, fish, Git Bash, WSL).
+
 ---
 
 ## At a glance
@@ -36,25 +55,6 @@ A modern terminal UI for Flutter — hot reload across N devices, real-time perf
 ![Platform override](docs/screenshots/platform.png)
 
 ---
-
-## Install
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
-```
-or:
-```sh
-npm i -g @antoinegtir/flutter-cli
-```
-
-The installer drops a binary on your `PATH` and adds one line to your shell rc:
-```sh
-eval "$(flutter-cli init <bash|zsh|fish>)"
-```
-
-That routes `flutter run` / `test` / `build` / `devices` through the TUI. Your IDE keeps using vanilla `flutter`; everything else (`flutter pub`, `doctor`, `clean`, …) passes through unchanged.
-
-**Requirements:** an existing Flutter SDK reachable via `PATH`, [FVM](https://fvm.app), or `$FLUTTER_ROOT`. macOS / Linux / Windows (bash, zsh, fish, Git Bash, WSL).
 
 ### Works with FVM
 
