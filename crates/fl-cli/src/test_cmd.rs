@@ -376,8 +376,14 @@ async fn pick_device_for_integration() -> anyhow::Result<Option<String>> {
     if let Ok(out) = runner.run("adb", &["devices", "-l"]).await {
         devices.extend(parse_devices_l(&out.stdout));
     }
-    let xcrun = fl_ios::Xcrun::new(TokioRunner);
-    devices.extend(fl_ios::list_apple_devices(&xcrun).await);
+    // `xcrun` only exists on macOS — skip the spawn entirely elsewhere
+    // so Linux/Windows builds don't pay for two ENOENT'ing child procs
+    // per invocation. `cfg!` is const-evaluated so the unreached branch
+    // is dropped at compile time.
+    if cfg!(target_os = "macos") {
+        let xcrun = fl_ios::Xcrun::new(TokioRunner);
+        devices.extend(fl_ios::list_apple_devices(&xcrun).await);
+    }
     // Only consider devices that are actually usable.
     devices.retain(|d| matches!(d.state, fl_core::DeviceState::Online));
     match devices.len() {

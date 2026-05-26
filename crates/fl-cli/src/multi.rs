@@ -410,10 +410,20 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             // devicectl rather than subscribing to the device event
             // stream because that stream is consumed by AppState and
             // we'd need a tee. Polling every 2 s is plenty.
-            let xcrun = fl_ios::Xcrun::new(fl_adb::TokioRunner);
             let mut last_state_logged: Option<bool> = None;
             loop {
-                let devs = fl_ios::list_apple_devices(&xcrun).await;
+                // macOS-only: xcrun doesn't exist elsewhere. The whole
+                // USB-replug poll is iOS-specific anyway, so on Linux/
+                // Windows we'd just be ENOENTing every 3 s for nothing.
+                // Xcrun is built inside the branch (cheap unit-like
+                // wrapper) so non-macOS doesn't get an unused-variable
+                // warning.
+                let devs = if cfg!(target_os = "macos") {
+                    let xcrun = fl_ios::Xcrun::new(fl_adb::TokioRunner);
+                    fl_ios::list_apple_devices(&xcrun).await
+                } else {
+                    Vec::new()
+                };
                 let back_on_usb = devs.iter().any(|d| {
                     d.serial == serial_for_state
                         && matches!(d.connection, fl_core::ConnectionKind::Usb)
@@ -1594,8 +1604,14 @@ pub async fn run_multi(
             Vec::new()
         }
     };
-    let xcrun = fl_ios::Xcrun::new(TokioRunner);
-    all_devices.extend(fl_ios::list_apple_devices(&xcrun).await);
+    // Skip Apple discovery entirely on Linux/Windows — `xcrun` lives
+    // only on macOS, so spawning it elsewhere is two guaranteed-to-fail
+    // child processes per `flutter run`. `cfg!` is const-folded so the
+    // branch is dropped at compile time on non-macOS targets.
+    if cfg!(target_os = "macos") {
+        let xcrun = fl_ios::Xcrun::new(TokioRunner);
+        all_devices.extend(fl_ios::list_apple_devices(&xcrun).await);
+    }
 
     // Cross-reference with `flutter devices --machine` — the
     // authoritative list of devices the Flutter toolchain will
@@ -1764,10 +1780,17 @@ pub async fn run_multi(
         let tx = event_tx.clone();
         tokio::spawn(async move {
             let (dev_tx, mut dev_rx) = mpsc::channel(32);
-            tokio::spawn(async move {
-                let xcrun = fl_ios::Xcrun::new(TokioRunner);
-                fl_ios::watch_apple_devices(xcrun, dev_tx).await;
-            });
+            // Apple device watcher is macOS-only — `xcrun` is part of
+            // Xcode CLT. Skipping the spawn entirely on Linux/Windows
+            // avoids an infinite poll loop that ENOENTs each iteration.
+            if cfg!(target_os = "macos") {
+                tokio::spawn(async move {
+                    let xcrun = fl_ios::Xcrun::new(TokioRunner);
+                    fl_ios::watch_apple_devices(xcrun, dev_tx).await;
+                });
+            } else {
+                drop(dev_tx);
+            }
             while let Some(ev) = dev_rx.recv().await {
                 tx.send(AppEvent::Device(ev)).await.ok();
             }

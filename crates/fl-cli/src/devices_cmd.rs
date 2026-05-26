@@ -12,8 +12,14 @@ pub async fn run() -> anyhow::Result<()> {
             devices.extend(parse_devices_l(&out.stdout));
         }
     }
-    let xcrun = Xcrun::new(TokioRunner);
-    devices.extend(fl_ios::list_apple_devices(&xcrun).await);
+    // Apple device discovery uses `xcrun`, which is macOS-only — gate
+    // it out on Linux/Windows to avoid two ENOENT spawns per `fl devices`
+    // invocation. `cfg!` is const-folded so the branch is dropped at
+    // compile time on non-macOS targets.
+    if cfg!(target_os = "macos") {
+        let xcrun = Xcrun::new(TokioRunner);
+        devices.extend(fl_ios::list_apple_devices(&xcrun).await);
+    }
     enrich(&runner, &mut devices).await;
     print_table(&devices);
     Ok(())
