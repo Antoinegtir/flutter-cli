@@ -1449,11 +1449,15 @@ async fn open_devtools_all(sessions: &[DeviceSession], events: &mpsc::Sender<App
                             .ok();
                     }
                     _ => {
+                        // ENOENT (no `open` / `xdg-open` on this box — common
+                        // on minimal Linux, WSL, plain SSH sessions, Docker
+                        // images) or non-zero exit. Either way the user can
+                        // still grab the URL from this log line.
                         events
                             .send(AppEvent::Flutter(FlutterEvent::Log {
                                 level: LogLevel::Warn,
                                 message: format!(
-                                    "[{short}] couldn't run `{opener}` — DevTools: {u}"
+                                    "[{short}] no `{opener}` available — open DevTools manually: {u}"
                                 ),
                             }))
                             .await

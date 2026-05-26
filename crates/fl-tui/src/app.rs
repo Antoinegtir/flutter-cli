@@ -976,27 +976,16 @@ fn strip_log_prefix(msg: &str) -> String {
     trimmed.to_string()
 }
 
-/// Pipe `text` to `pbcopy` (macOS). The previous behaviour piped via a
-/// shell, which broke on lines containing single quotes — we use a
-/// real stdin to avoid that whole class of bugs.
+/// Copy `text` to the OS clipboard. Uses `arboard` so the same code
+/// works on macOS (NSPasteboard), Linux (X11 / Wayland) and Windows
+/// (clipboard API) — the previous `Command::new("pbcopy")` path only
+/// worked on macOS and bombed elsewhere with a cryptic ENOENT.
 fn copy_to_clipboard(text: &str) -> std::io::Result<()> {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    let mut child = Command::new("pbcopy")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .spawn()?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(text.as_bytes())?;
-    }
-    let status = child.wait()?;
-    if !status.success() {
-        return Err(std::io::Error::other(format!(
-            "pbcopy exited with {:?}",
-            status.code()
-        )));
-    }
+    let mut clipboard = arboard::Clipboard::new()
+        .map_err(|e| std::io::Error::other(format!("clipboard unavailable: {e}")))?;
+    clipboard
+        .set_text(text)
+        .map_err(|e| std::io::Error::other(format!("clipboard write failed: {e}")))?;
     Ok(())
 }
 

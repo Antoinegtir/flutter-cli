@@ -23,6 +23,23 @@ pub async fn pre_pair_wifi<R: CommandRunner + ?Sized>(
     usb_serial: &str,
     port: u16,
 ) -> anyhow::Result<WifiTarget> {
+    // Friendly preflight: if adb isn't on PATH, every spawn below would
+    // bail with "No such file or directory (os error 2)" — useless. A
+    // single probe up front lets us return an actionable install hint
+    // instead of the raw ENOENT.
+    if let Err(e) = runner.run("adb", &["version"]).await {
+        if let Some(io) = e.downcast_ref::<std::io::Error>() {
+            if io.kind() == std::io::ErrorKind::NotFound {
+                return Err(anyhow!(
+                    "Android wireless pairing requires `adb` on your PATH. \
+                     Install Android SDK platform-tools \
+                     (https://developer.android.com/tools/releases/platform-tools)."
+                ));
+            }
+        }
+        return Err(e.context("adb version probe failed"));
+    }
+
     let port_s = port.to_string();
     let tcpip = runner
         .run("adb", &["-s", usb_serial, "tcpip", &port_s])
@@ -70,6 +87,13 @@ mod tests {
 
     fn happy_runner() -> MockRunner {
         let m = MockRunner::new();
+        // Precheck added by pre_pair_wifi to surface a friendly error
+        // when adb is missing — always invoked, so test fixtures must
+        // declare the expectation.
+        m.expect(
+            "adb version",
+            CommandOutput::ok("Android Debug Bridge version 35.0.0\n"),
+        );
         m.expect(
             "adb -s ABC123 tcpip 5555",
             CommandOutput::ok("restarting in TCP mode port: 5555\n"),
@@ -92,12 +116,14 @@ mod tests {
         assert_eq!(t.ip, "192.168.1.42");
         assert_eq!(t.port, 5555);
         assert_eq!(t.serial(), "192.168.1.42:5555");
-        assert_eq!(r.calls().len(), 3);
+        // 4 calls now: the new `adb version` precheck + the 3 original.
+        assert_eq!(r.calls().len(), 4);
     }
 
     #[tokio::test]
     async fn fails_when_no_ip_returned() {
         let r = MockRunner::new();
+        r.expect("adb version", CommandOutput::ok(""));
         r.expect("adb -s ABC123 tcpip 5555", CommandOutput::ok(""));
         r.expect(
             "adb -s ABC123 shell ip -f inet addr show wlan0",
@@ -110,6 +136,7 @@ mod tests {
     #[tokio::test]
     async fn fails_when_connect_says_failed() {
         let r = MockRunner::new();
+        r.expect("adb version", CommandOutput::ok(""));
         r.expect("adb -s ABC123 tcpip 5555", CommandOutput::ok(""));
         r.expect(
             "adb -s ABC123 shell ip -f inet addr show wlan0",

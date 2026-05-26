@@ -186,8 +186,6 @@ impl TestView {
     }
 
     fn copy_failures_to_clipboard(&self) -> std::io::Result<usize> {
-        use std::io::Write;
-        use std::process::{Command, Stdio};
         let mut body = String::new();
         for f in &self.failures {
             body.push_str("✗ ");
@@ -205,21 +203,14 @@ impl TestView {
             }
             body.push('\n');
         }
-        let mut child = Command::new("pbcopy")
-            .stdin(Stdio::piped())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .spawn()?;
-        if let Some(mut stdin) = child.stdin.take() {
-            stdin.write_all(body.as_bytes())?;
-        }
-        let status = child.wait()?;
-        if !status.success() {
-            return Err(std::io::Error::other(format!(
-                "pbcopy exited with {:?}",
-                status.code()
-            )));
-        }
+        // Cross-platform clipboard via arboard: macOS / Linux / Windows.
+        // Replaces the previous `Command::new("pbcopy")` which ENOENT'd
+        // outside macOS.
+        let mut clipboard = arboard::Clipboard::new()
+            .map_err(|e| std::io::Error::other(format!("clipboard unavailable: {e}")))?;
+        clipboard
+            .set_text(&body)
+            .map_err(|e| std::io::Error::other(format!("clipboard write failed: {e}")))?;
         Ok(self.failures.len())
     }
 }

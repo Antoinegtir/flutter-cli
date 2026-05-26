@@ -15,6 +15,10 @@ tracing.workspace = true
 chrono.workspace = true
 futures-util.workspace = true
 termbg.workspace = true
+# Cross-platform clipboard so the `c` keybind works on Linux + Windows,
+# not just macOS via `pbcopy`. arboard talks directly to the OS
+# clipboard APIs (X11 / Wayland / NSPasteboard / Windows clipboard).
+arboard = "3"
 
 [dev-dependencies]
 insta = "1.34"
