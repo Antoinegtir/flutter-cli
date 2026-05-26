@@ -43,10 +43,19 @@ done
 if [ "$KEEP_RC" = "false" ]; then
   MARK_START="# >>> flutter-cli shim >>>"
   MARK_END="# <<< flutter-cli shim <<<"
+  # Every shell rc / profile file the installer (or a user manually
+  # following the README) could have dropped the eval line into. Covers
+  # interactive shells (.zshrc/.bashrc), login shells
+  # (.zprofile/.bash_profile/.zlogin/.profile), and fish. Each file is
+  # checked for the sentinel block before touching, so listing extras
+  # has no cost when they don't contain the shim.
   RC_CANDIDATES=(
     "$HOME/.zshrc"
+    "$HOME/.zprofile"
+    "$HOME/.zlogin"
     "$HOME/.bashrc"
     "$HOME/.bash_profile"
+    "$HOME/.profile"
     "$HOME/.config/fish/config.fish"
   )
   for rc in "${RC_CANDIDATES[@]}"; do
