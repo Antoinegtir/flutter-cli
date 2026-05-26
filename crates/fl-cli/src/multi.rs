@@ -1577,8 +1577,19 @@ pub async fn run_multi(
         .status()
         .await;
 
-    let listed = runner.run("adb", &["devices", "-l"]).await?;
-    let mut all_devices = parse_devices_l(&listed.stdout);
+    // adb is optional — many users only target iOS/simulators and never
+    // install Android tooling. If `adb` isn't on PATH we'd otherwise
+    // bubble up `tokio::Command::new("adb")`'s raw ENOENT ("Error: No
+    // such file or directory (os error 2)"), which looks like a bug in
+    // our tool rather than a missing optional dependency. Skip Android
+    // discovery silently in that case and let iOS take over.
+    let mut all_devices = match runner.run("adb", &["devices", "-l"]).await {
+        Ok(listed) => parse_devices_l(&listed.stdout),
+        Err(e) => {
+            tracing::debug!("adb unavailable, skipping Android discovery: {e}");
+            Vec::new()
+        }
+    };
     let xcrun = fl_ios::Xcrun::new(TokioRunner);
     all_devices.extend(fl_ios::list_apple_devices(&xcrun).await);
 
