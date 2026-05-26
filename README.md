@@ -7,225 +7,158 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Discussions](https://img.shields.io/github/discussions/Antoinegtir/flutter-cli?logo=github)](https://github.com/Antoinegtir/flutter-cli/discussions)
 
-A modern terminal UI for Flutter — hot reload across N devices, real-time perf, inline scrollback.
-Drops into your shell so `flutter run` *becomes* the dashboard. No new command to learn.
+A modern terminal UI for Flutter — hot reload across N devices, real-time perf, inline scrollback. Drops into your shell so `flutter run` *becomes* the dashboard.
 
 ![flutter-cli landing](docs/screenshots/landing.gif)
-
-*One line in your shell config turns `flutter run` into this — welcome banner, inline dashboard, scrollback preserved.*
 
 </div>
 
 ---
 
-## Requirements
+## At a glance
 
-- A **Flutter SDK** on your `PATH` (or via [FVM](https://fvm.app) / `FLUTTER_ROOT`) — `flutter-cli` wraps your existing `flutter`, it doesn't ship one.
-- macOS, Linux, or Windows — bash, zsh, fish, or Git Bash / WSL.
-- iOS-specific features (per-device screenshots, etc.) are macOS-only and need Xcode's command-line tools (`xcrun`).
+**Multi-device picker — `space` to select, `a` for all, `enter` to fire.**
+![Device picker](docs/screenshots/select-devices.png)
+
+**Live per-device FPS + memory sparklines, side by side.**
+![Per-device performance](docs/screenshots/performance.png)
+
+**Press `n` — full HTTP traffic inspector, color-coded by status.**
+![Network inspector](docs/screenshots/network.png)
+
+**Press `/` — logs filter as you type, by message or by level.**
+![Live filter](docs/screenshots/logfilter.png)
+
+**Press `b` — flip light/dark on every device without leaving the terminal.**
+![Brightness toggle](docs/screenshots/darkmode.png)
+
+**Press `o` — fake iOS or Android per device to chase layout bugs.**
+![Platform override](docs/screenshots/platform.png)
 
 ---
 
 ## Install
 
-Works on **macOS, Linux and Windows**, with **bash, zsh, fish** and Git Bash / WSL on Windows.
-
 ```sh
-# curl + bash — drops the binary on your PATH and wires the shim.
 curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
-
-# Or via npm / npx — same binary, no shell rc changes:
-npx @antoinegtir/flutter-cli run                   # one-shot, no install
-npm install -g @antoinegtir/flutter-cli            # global, exposes `flutter-cli` on PATH
 ```
-
-The installer drops a single helper on your `PATH` and adds **one line** to whichever shell config it detects (`~/.bashrc`, `~/.zshrc`, `~/.config/fish/config.fish`):
-
+or:
 ```sh
-eval "$(flutter-cli init <your-shell>)"   # bash | zsh | fish
+npm i -g @antoinegtir/flutter-cli
 ```
 
-Reload your shell, then:
-
+The installer drops a binary on your `PATH` and adds one line to your shell rc:
 ```sh
-flutter run
+eval "$(flutter-cli init <bash|zsh|fish>)"
 ```
 
-🪄 The TUI takes over. Your IDE keeps using vanilla `flutter` (the shim only fires in your terminal), and `flutter pub`, `flutter doctor`, `flutter clean` — anything we don't enhance — passes through unchanged.
+That routes `flutter run` / `test` / `build` / `devices` through the TUI. Your IDE keeps using vanilla `flutter`; everything else (`flutter pub`, `doctor`, `clean`, …) passes through unchanged.
+
+**Requirements:** an existing Flutter SDK reachable via `PATH`, [FVM](https://fvm.app), or `$FLUTTER_ROOT`. macOS / Linux / Windows (bash, zsh, fish, Git Bash, WSL).
+
+### Works with FVM
+
+`flutter-cli` auto-detects per-project FVM pins: it resolves `.fvm/flutter_sdk` first (what your IDE reads), then falls back to `.fvmrc` / legacy `.fvm/fvm_config.json` against `~/fvm/versions`. No `fvm flutter` prefix needed, and the resolved Flutter/Dart versions show up in the dashboard header.
 
 ### Upgrade
 
-Re-run the same install line. The script is idempotent: it resolves the latest release, overwrites the binary on your PATH, and leaves the shell shim untouched (it's already there). No reload needed — the shim invokes `flutter-cli` fresh on every call, so your next `flutter run` picks up the new binary.
-
+Re-run the same install line — idempotent, no reload needed:
 ```sh
-# latest release
 curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
-
-# pin a specific version
-curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | FL_VERSION=0.4.3 bash
-
-# npm side
-npm i -g @antoinegtir/flutter-cli   # or `npm update -g @antoinegtir/flutter-cli`
+```
+or:
+```sh
+npm update -g @antoinegtir/flutter-cli
 ```
 
 ### Uninstall
 
-No clone required — fetch and pipe the uninstaller. It strips the shim from every shell rc / profile file it can find (`.zshrc`, `.zprofile`, `.zlogin`, `.bashrc`, `.bash_profile`, `.profile`, `~/.config/fish/config.fish`) and removes the binary from every known install location (`~/.local/bin`, `~/.cargo/bin`, `/usr/local/bin`, and `$BIN_DIR` if you customized it).
-
 ```sh
 curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/uninstall.sh | bash
-
-# keep the binary, strip only the shell shim
-curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/uninstall.sh | bash -s -- --keep-bin
-
-# keep the shim, remove only the binary
-curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/uninstall.sh | bash -s -- --keep-rc
-
-# npm side
-npm uninstall -g @antoinegtir/flutter-cli
+```
+or:
+```sh
+ npm uninstall -g @antoinegtir/flutter-cli
 ```
 
-If you cloned the repo, `./install.sh` and `./uninstall.sh` work the same way locally. Either way, the design is non-invasive — uninstalling restores your shell to its pre-flutter-cli state.
+Strips the shim from every shell rc / profile, removes the binary from every known dir. Non-invasive.
 
-### Don't want a shim?
+### Direct binary (no shim)
 
-You can also call the binary directly — `flutter-cli run`, `flutter-cli test`, `flutter-cli build`. Same TUI, no shell wiring needed. Handy on CI runners or locked-down corporate machines where rc files are off-limits.
-
-### Works with FVM
-
-Using [FVM](https://fvm.app)? Just run `flutter run` — `flutter-cli` automatically uses the version your project is pinned to. It resolves the `.fvm/flutter_sdk` symlink first (also what your IDE reads), then falls back to `.fvmrc` / the legacy `.fvm/fvm_config.json` against `~/fvm/versions`, before anything else on your `PATH`. No `fvm flutter` prefix needed, and the resolved Flutter/Dart versions show up in the dashboard header.
+Call `flutter-cli run` / `test` / `build` directly. Handy for CI runners or machines where you can't touch rc files.
 
 ---
 
 ## Why
 
-`flutter run` was written for one device, one developer, one terminal. In 2025 you're probably:
+`flutter run` was built for one device, one terminal. Today you're usually:
+- Testing on 2+ devices at once (iOS, Android, simulator).
+- Watching FPS, memory, jank — not just compile errors.
+- Drowning in 50k lines of scrollback.
+- Re-typing `flutter run --device emulator-5554 --flavor prod` for the hundredth time.
 
-- Testing on **2+ devices simultaneously** (iOS, Android, simulator).
-- Watching FPS, memory, jank ratios — not just compile errors.
-- Drowning in 50,000 lines of scrollback per session.
-- Re-typing the same `flutter run --device emulator-5554 --flavor prod` for the hundredth time.
-
-Same project, same `flutter` binary underneath, dramatically better feedback loop.
+Same `flutter` underneath, dramatically better feedback loop:
 
 | | vanilla `flutter run` | with the shim |
 |---|---|---|
 | Multi-device hot reload | one at a time | parallel, single `r` |
-| Per-device FPS / memory | no | yes, live sparklines |
-| Inline TUI (scrollback preserved) | no | yes |
-| Device picker | text prompt | navigable list with `space`/`a` |
-| Survives `--release` rebuild flags | manual `--mode` | native `--release` / `--profile` |
-| Add `--flavor`, `--dart-define` | works | works (`-- --flavor prod`) |
-| Open DevTools in browser | copy URL manually | `d` keystroke |
-| Live HTTP traffic inspector | DevTools-only | `n` keystroke, in your terminal |
-| Side-by-side device screenshots | per-platform tooling | `s` keystroke, every device at once |
-| Skip the TUI when you need to | n/a | `--basic` (CI, piping, debugging) |
+| Per-device FPS / memory | — | live sparklines |
+| Inline TUI (scrollback preserved) | — | yes |
+| Device picker | text prompt | navigable list |
+| `--release` / `--profile` / `--flavor` / `--dart-define` | works | works |
+| Open DevTools | copy URL manually | `d` keystroke |
+| Live HTTP inspector | DevTools-only | `n` keystroke |
+| Side-by-side screenshots | per-platform tooling | `s` keystroke |
+| Skip the TUI | n/a | `--basic` |
 
 ---
 
-## What you can do
+## Commands
 
 ### `flutter run` — multi-device dashboard
 
 ```sh
-flutter run                    # auto-pick or device picker
+flutter run                    # auto-pick or interactive picker
 flutter run --release          # release mode
 flutter run -d emulator-5554   # specific device
-flutter run -d all             # every connected device, hot reload broadcasts
-flutter run -- --flavor prod --dart-define=API=https://x   # any flutter run flag
+flutter run -d all             # every connected device
+flutter run -- --flavor prod --dart-define=API=https://x   # any flutter flag
 ```
 
-When several devices are connected, an interactive picker shows up — multi-select with `space`, select all with `a`, confirm with `enter`:
-
-![Device picker](docs/screenshots/select-devices.png)
-
-Once you've picked, the dashboard shows one performance block per device with live FPS / memory sparklines:
-
-![Per-device performance panel](docs/screenshots/performance.png)
-
-While running:
+Keybindings while running:
 
 | key | action |
 |---|---|
-| `r` | hot reload (all devices) |
-| `R` | hot restart (all devices) |
-| `b` | toggle brightness (light / dark) |
-| `p` | toggle debug paint |
-| `P` | toggle performance overlay |
-| `o` | toggle platform (iOS / Android) |
-| `s` | screenshot every device → `screenshots/<timestamp>/<device>.png` |
-| `n` | toggle the live HTTP network inspector |
+| `r` / `R` | hot reload / hot restart (all devices) |
+| `b` / `o` | flip theme (light/dark) / fake platform (iOS/Android) |
+| `p` / `P` | debug paint / performance overlay |
+| `n` | toggle Network inspector |
 | `d` | open Flutter DevTools in your browser |
-| `↑` / `↓` | scroll the active panel (logs or network) |
-| `/` | filter logs live |
-| `c` | copy logs to clipboard |
+| `s` | screenshot every device → `screenshots/<timestamp>/<device>.png` |
+| `/` | filter logs live · `c` copy the filtered slice |
+| `↑` / `↓` | scroll the active panel |
 | `q` | quit |
 
-#### Live device toggles, no IDE round-trip
+Screenshots go through the VM Service's `_flutter.screenshot` RPC first (zero deps), with `flutter screenshot` / `adb` / `idevicescreenshot` / `simctl` as fallbacks. Works on iPhone, Android, simulators, and desktop.
 
-Press `b` to flip the system theme between light and dark on the running app — exactly the kind of test you used to need a 30-second tap dance through device settings for:
+### `flutter test`
 
-![Brightness toggle](docs/screenshots/darkmode.png)
-
-Press `o` to fake the platform: an Android device suddenly thinks it's iOS (Cupertino widgets) and vice-versa. Pairs nicely with `p` (debug paint) when you're chasing layout differences between platforms:
-
-![Platform override](docs/screenshots/platform.png)
-
-#### Live log filtering
-
-Press `/`, type — logs are filtered **as you type** (substring match on either the message body or the level name `error` / `warn` / `info` / `debug`). Press `Enter` to freeze the filter, `Esc` to cancel.
-
-![Live filter](docs/screenshots/logfilter.png)
-
-#### Copy logs to the clipboard
-
-Press `c` to copy the visible log buffer. If a filter is active, **only the matching lines are copied** — perfect for triaging a noisy stack trace into a chat or an issue.
-
-![Copy filtered logs](docs/screenshots/copy.png)
-
-#### Live network inspector
-
-Press `n` to swap the Performance panel for a live HTTP traffic view — every request your app makes via `dart:io` (or `package:http`, which wraps it) is captured through the Dart VM Service's `getHttpProfile` extension and displayed with method, URL, status code and duration. Color-coded by HTTP status family (green 2xx, yellow 4xx, red 5xx). `↑` / `↓` scrolls back through the history, `Enter`/`n` again returns to Performance.
-
-![Network inspector](docs/screenshots/network.png)
-
-#### One-keystroke screenshots of every device
-
-Press `s` to capture the current frame on every connected device **in parallel**. PNGs land in `screenshots/<timestamp>/<device-name>.png` — ready to drop into a Slack thread, a PR, or App Store assets. Works on iPhone, Android, simulators and desktop without installing per-platform tooling: the capture goes through the VM Service's `_flutter.screenshot` RPC first (zero deps), with `flutter screenshot` / `adb` / `idevicescreenshot` / `simctl` as fallbacks.
-
-```
-[iPhone Antoine] 📸 saved screenshots/2026-05-19_20-26-50/iPhone_Antoine.png (vmservice)
-[sdk gphone64 arm64] 📸 saved screenshots/2026-05-19_20-26-50/sdk_gphone64_arm64.png (vmservice)
-📸 2/2 screenshots in screenshots/2026-05-19_20-26-50
-```
-
-#### Open DevTools straight from the TUI
-
-Press `d` to open Flutter DevTools in your default browser for every running session. The URL is grabbed live from the daemon's `app.devTools:` log line, so no copy-pasting and no waiting for "what's the address again?" — it just opens. On macOS uses `open`, elsewhere `xdg-open`.
-
-### `flutter test` — every test type
-
-Test runner with a live failures panel — pass/fail/skip counters update in real time, and any failure jumps straight to the stack trace on the right. `Tab` switches focus between the tests list and the failures panel, `c` copies the failures only, `r` re-runs.
+Live failures panel: pass/fail/skip counters update in real time, any failure jumps to its stack trace. `Tab` switches focus, `c` copies failures, `r` re-runs.
 
 ![flutter test runner](docs/screenshots/test.png)
 
 ```sh
-flutter test                              # everything under test/
-flutter test test/widget_test.dart        # one file
-flutter test test/auth/                   # one directory
-flutter test integration_test/            # e2e — picker fires automatically
-flutter test --golden                     # golden tests under test/golden/
-flutter test --golden --update-goldens    # regenerate
-flutter test --coverage                   # writes coverage/lcov.info
-flutter test --tags slow --exclude-tags flaky
-flutter test --reporter expanded -j 4
-flutter test -- --start-paused --total-shards 4   # anything else
+flutter test                       # everything under test/
+flutter test test/auth/            # one directory
+flutter test integration_test/     # e2e — picker fires automatically
+flutter test --golden --update-goldens
+flutter test --coverage --tags slow --exclude-tags flaky
+flutter test -- --start-paused --total-shards 4   # any extra flag
 ```
 
 ### `flutter build` — any target
 
 ```sh
-flutter build                       # lists subcommands (forwards to flutter)
 flutter build apk
 flutter build ios --release
 flutter build ipa
@@ -235,35 +168,30 @@ flutter build ios -- --no-codesign --obfuscate --split-debug-info=symbols/
 
 ### `flutter devices`
 
-Live-tracked list with status, OS version. Same data the picker uses.
+Live-tracked list with status and OS version.
 
-### Skipping the TUI: `--basic`
-
-Every command supports a `--basic` flag that drops the TUI and just `exec`s the real `flutter` binary with stdio inherited. Useful in CI, when piping into another tool, or when the TUI itself is masking an obscure tool error.
+### `--basic` — skip the TUI
 
 ```sh
-flutter run --basic                     # vanilla `flutter run` output
-flutter test --basic --coverage         # vanilla `flutter test` output
-flutter test integration_test/ --basic
+flutter run --basic              # vanilla `flutter run` output
+flutter test --basic --coverage
 flutter build apk --basic --release
 ```
 
-No `--machine`, no JSON parsing, no per-device prefix — exactly the same logs you'd get if `flutter-cli` weren't on your `PATH`. The shim still picks up the rest of the `flutter` subcommands.
+Useful for CI, piping into another tool, or debugging the TUI itself. Same logs you'd get if `flutter-cli` weren't on `PATH`.
 
 ---
 
 ## How the shim works
 
-The installer adds this block to your shell config (idempotent, gated by sentinel comments so removing it is one line away):
-
+The installer adds 3 lines to your rc, gated by sentinel comments so removal is a one-liner:
 ```sh
 # >>> flutter-cli shim >>>
 eval "$(flutter-cli init <shell>)"
 # <<< flutter-cli shim <<<
 ```
 
-For bash / zsh, that `eval` expands to roughly:
-
+The eval expands to a function that routes only the 4 claimed subcommands through the TUI, falling through for everything else:
 ```sh
 flutter() {
   case "$1" in
@@ -273,74 +201,43 @@ flutter() {
 }
 ```
 
-…and for fish, the equivalent `function flutter ... switch $argv[1] ... end` with a `command flutter` fallback.
-
-**That's the whole magic trick.** Four `flutter` subcommands routed through the TUI, everything else passes through to the real binary. Your IDE plugins, CI pipelines, and dotfile zealotry are untouched.
+Self-healing: if `flutter-cli` ever disappears (uninstalled, PATH broken, …), the function detects it and falls back to `command flutter` for every call instead of erroring. Your IDE plugins, CI pipelines, and dotfile zealotry stay untouched.
 
 ---
 
 ## Manual install (without the script)
 
 ```sh
-git clone https://github.com/Antoinegtir/flutter-cli
-cd flutter-cli
+git clone https://github.com/Antoinegtir/flutter-cli && cd flutter-cli
 cargo install --path crates/fl-cli
+echo 'eval "$(flutter-cli init zsh)"' >> ~/.zshrc   # bash / fish — substitute shell
 ```
-
-Then wire the shim into the shell config of your choice:
-
-```sh
-# bash
-echo 'eval "$(flutter-cli init bash)"' >> ~/.bashrc
-
-# zsh
-echo 'eval "$(flutter-cli init zsh)"'  >> ~/.zshrc
-
-# fish
-echo 'flutter-cli init fish | source'  >> ~/.config/fish/config.fish
-```
-
-Or skip the shim entirely and call `flutter-cli run` / `test` / `build` directly.
 
 ---
 
 ## Docker
 
-A `Dockerfile` (multi-stage, Debian slim runtime, non-root user) ships in the repo for CI runners and locked-down dev VMs.
+Multi-stage `Dockerfile` (Debian slim runtime, non-root) for CI and locked-down dev VMs. The image **does not** bundle the Flutter SDK — mount yours.
 
 ```sh
-# build the image
 docker build -t flutter-cli:dev .
-
-# sanity check
-docker run --rm -it flutter-cli:dev --help
-
-# run against your local Flutter project + SDK (Linux/macOS host)
-docker run --rm -it \
-  -v "$PWD":/work -w /work \
+docker run --rm -it -v "$PWD":/work -w /work \
   -v "$FLUTTER_ROOT":/opt/flutter:ro \
   -e PATH=/opt/flutter/bin:/usr/local/bin:/usr/bin:/bin \
   flutter-cli:dev run --basic
 ```
 
-The image **does not** bundle the Flutter SDK — it's huge, version-sensitive, and you almost certainly already have one. Mount yours at `/opt/flutter` and put it on `PATH`. Android USB devices need `--device /dev/bus/usb` and appropriate udev rules on the host. iOS device interaction stays macOS-only (needs `xcrun`).
+Android USB needs `--device /dev/bus/usb` + udev rules on the host. iOS interaction stays macOS-only (`xcrun`).
 
 ---
 
 ## Contributing
 
 ```sh
-git clone https://github.com/Antoinegtir/flutter-cli
-cd flutter-cli
-cargo test --workspace
+git clone https://github.com/Antoinegtir/flutter-cli && cd flutter-cli
+cargo test --workspace        # `cargo fmt` + `cargo clippy -D warnings` also checked by CI
 ```
-
-PRs welcome — `cargo fmt`, `cargo clippy -D warnings`, and `cargo test --workspace` are checked by CI.
 
 ---
 
-## License
-
-MIT — see [LICENSE](LICENSE).
-
-Built by [@Antoinegtir](https://github.com/Antoinegtir).
+MIT — see [LICENSE](LICENSE). Built by [@Antoinegtir](https://github.com/Antoinegtir).
