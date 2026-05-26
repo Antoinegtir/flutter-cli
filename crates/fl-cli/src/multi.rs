@@ -616,7 +616,8 @@ fn connect_vm_service(
             // isolate and the old one starts returning "Sentinel /
             // Collected", which is what was previously freezing Memory at
             // 0 MB.
-            let mem_client = client.clone();
+            let mut mem_client = client.clone();
+            let uri_for_mem = uri.clone();
             let mem_tx = event_tx.clone();
             let mem_serial = serial.clone();
             let mem_short = short_name.clone();
@@ -624,6 +625,11 @@ fn connect_vm_service(
                 let mut ticker = tokio::time::interval(std::time::Duration::from_secs(1));
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut consecutive_failures: u32 = 0;
+                // After Mac sleep/wake (or any extended WS disruption) the
+                // underlying ws goes silent and `mem_client.call()` errors
+                // out forever. We try to re-establish every 10 failures:
+                // cheap, and if the VM Service is still up on the device
+                // we resume in ~1 tick. Falls back to silent retry if not.
                 // Track the first successful poll so we can log it once
                 // (useful confirmation the Memory line should be moving)
                 // plus the last reported value so we can detect a
@@ -632,6 +638,26 @@ fn connect_vm_service(
                 let mut warned_about_zeros = false;
                 loop {
                     ticker.tick().await;
+                    // Self-heal: every 10th consecutive failure, drop the
+                    // dead client and open a fresh ws to the same URI.
+                    if consecutive_failures > 0 && consecutive_failures % 10 == 0 {
+                        let (throwaway_tx, _throwaway_rx) = mpsc::channel::<fl_core::VmEvent>(16);
+                        if let Ok(fresh) =
+                            VmServiceClient::connect(&uri_for_mem, throwaway_tx).await
+                        {
+                            mem_tx
+                                .send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Debug,
+                                    message: format!(
+                                        "{mem_short}memory poll: reconnected to VM Service"
+                                    ),
+                                }))
+                                .await
+                                .ok();
+                            mem_client = fresh;
+                            consecutive_failures = 0;
+                        }
+                    }
                     let iso = match mem_client.get_first_isolate_id().await {
                         Ok(id) => id,
                         Err(e) => {
@@ -646,9 +672,6 @@ fn connect_vm_service(
                                     }))
                                     .await
                                     .ok();
-                            }
-                            if consecutive_failures > 60 {
-                                break; // VM unreachable for a minute → give up.
                             }
                             continue;
                         }
@@ -704,9 +727,10 @@ fn connect_vm_service(
                                     .await
                                     .ok();
                             }
-                            if consecutive_failures > 60 {
-                                break;
-                            }
+                            // No longer break — the reconnect block at the
+                            // top of the next iteration will try to heal a
+                            // dead WebSocket. Keeps the panel alive across
+                            // laptop sleep, USB hiccups, etc.
                         }
                     }
                 }
@@ -718,7 +742,8 @@ fn connect_vm_service(
             // `AppEvent::Flutter::Log` per *new* request seen since
             // the last poll. We dedupe by request ID so a long-lived
             // request doesn't reappear every second.
-            let net_client = client.clone();
+            let mut net_client = client.clone();
+            let uri_for_net = uri.clone();
             let net_tx = event_tx.clone();
             let net_short = short_name.clone();
             tokio::spawn(async move {
@@ -742,6 +767,30 @@ fn connect_vm_service(
                 let mut logged_first_error = false;
                 loop {
                     ticker.tick().await;
+                    // Self-heal: every 10th consecutive failure, drop the
+                    // dead client and open a fresh ws to the same URI.
+                    // Keeps the Network panel alive across laptop sleep
+                    // and other extended WS hiccups instead of silently
+                    // dying after 60 seconds.
+                    if consecutive_failures > 0 && consecutive_failures % 10 == 0 {
+                        let (throwaway_tx, _throwaway_rx) = mpsc::channel::<fl_core::VmEvent>(16);
+                        if let Ok(fresh) =
+                            VmServiceClient::connect(&uri_for_net, throwaway_tx).await
+                        {
+                            net_tx
+                                .send(AppEvent::Flutter(FlutterEvent::Log {
+                                    level: LogLevel::Debug,
+                                    message: format!(
+                                        "{net_short}network poll: reconnected to VM Service"
+                                    ),
+                                }))
+                                .await
+                                .ok();
+                            net_client = fresh;
+                            timeline_enabled = false; // re-arm on the new client
+                            consecutive_failures = 0;
+                        }
+                    }
                     // Refresh isolate id every tick — same reasoning
                     // as the memory poll: hot restart mints a new
                     // isolate and the old id starts returning
@@ -751,9 +800,6 @@ fn connect_vm_service(
                         Ok(id) => id,
                         Err(_) => {
                             consecutive_failures += 1;
-                            if consecutive_failures > 60 {
-                                break;
-                            }
                             continue;
                         }
                     };
@@ -797,9 +843,6 @@ fn connect_vm_service(
                                     .ok();
                             }
                             consecutive_failures += 1;
-                            if consecutive_failures > 60 {
-                                break;
-                            }
                             continue;
                         }
                     };
