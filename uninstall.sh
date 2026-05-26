@@ -4,12 +4,15 @@
 #   1. Strips the `# >>> flutter-cli shim >>>` block from every supported
 #      rc file we find (idempotent — skips files where the block isn't
 #      present, so it's safe to run twice).
-#   2. Removes the `flutter-cli` binary via `cargo uninstall`.
+#   2. Removes the `flutter-cli` binary from every known install
+#      location (~/.local/bin, ~/.cargo/bin, /usr/local/bin, $BIN_DIR)
+#      and `cargo uninstall fl-cli` for legacy build-from-source installs.
 #
 # Usage:
 #   ./uninstall.sh              # remove shim + binary
 #   ./uninstall.sh --keep-bin   # remove the shim only, leave the binary
 #   ./uninstall.sh --keep-rc    # remove the binary only, leave rc alone
+#   BIN_DIR=~/.local/bin ./uninstall.sh   # also check this extra dir
 
 set -euo pipefail
 
@@ -70,24 +73,32 @@ fi
 if [ "$KEEP_BIN" = "true" ]; then
   info "Skipped binary removal (--keep-bin)."
 else
+  removed=0
+  # Sweep every dir the installer (current or past) may have used —
+  # plus an explicit BIN_DIR override if the user set one on install.
+  # Only delete regular files (not symlinks to system services).
+  for candidate in \
+    ${BIN_DIR:+"$BIN_DIR/flutter-cli"} \
+    "$HOME/.local/bin/flutter-cli" \
+    "${CARGO_HOME:-$HOME/.cargo}/bin/flutter-cli" \
+    "/usr/local/bin/flutter-cli"
+  do
+    if [ -f "$candidate" ] && [ ! -L "$candidate" ]; then
+      rm -f "$candidate"
+      ok "Removed $candidate"
+      removed=$((removed + 1))
+    fi
+  done
+  # Legacy: tidy cargo's bookkeeping for users who originally did a
+  # `cargo install --path crates/fl-cli`, so `cargo install --list`
+  # no longer claims fl-cli is installed.
   if command -v cargo >/dev/null && cargo install --list 2>/dev/null | grep -q '^fl-cli '; then
-    cargo uninstall fl-cli >/dev/null
-    ok "Uninstalled flutter-cli binary (cargo uninstall fl-cli)"
-  else
-    # Best-effort fallback if the user installed manually or via a
-    # different toolchain. Look for the binary in the usual cargo bin
-    # dirs and the standard system paths, but only remove things that
-    # look like ours (regular file, executable, not a system service).
-    for candidate in \
-      "${CARGO_HOME:-$HOME/.cargo}/bin/flutter-cli" \
-      "$HOME/.local/bin/flutter-cli" \
-      "/usr/local/bin/flutter-cli"
-    do
-      if [ -x "$candidate" ] && [ ! -L "$candidate" ]; then
-        rm -f "$candidate"
-        ok "Removed $candidate"
-      fi
-    done
+    cargo uninstall fl-cli >/dev/null 2>&1 || true
+    ok "Cleaned cargo's record of fl-cli (legacy build-from-source install)"
+    removed=$((removed + 1))
+  fi
+  if [ "$removed" -eq 0 ]; then
+    warn "flutter-cli binary not found in any known location — nothing to remove"
   fi
 fi
 

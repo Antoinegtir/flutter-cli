@@ -203,7 +203,7 @@ flutter build ios -- --no-codesign --obfuscate --split-debug-info=symbols/
 
 ### `flutter devices`
 
-Live-tracked list with status, IP, battery, OS version. Same data the picker uses.
+Live-tracked list with status, OS version. Same data the picker uses.
 
 ### Skipping the TUI: `--basic`
 
