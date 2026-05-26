@@ -9,7 +9,7 @@
 # Idempotent: re-running upgrades the binary and skips the rc edit
 # if the eval line is already there.
 #
-# Designed for the canonical `curl … | bash` one-liner — no clone,
+# Designed for the canonical `curl ... | bash` one-liner — no clone,
 # no Rust toolchain required. Running `./install.sh` from a clone
 # works the same way.
 #
@@ -91,7 +91,7 @@ fi
 
 # ─── 3. resolve version ────────────────────────────────────────────
 if [ -z "$FL_VERSION" ]; then
-  info "Resolving latest release from GitHub…"
+  info "Resolving latest release from GitHub..."
   # /releases/latest returns JSON; extract tag_name without needing jq.
   # `head -1` keeps us tolerant of preview/draft fields appearing later.
   FL_VERSION="$(
@@ -112,11 +112,11 @@ BASE="https://github.com/${REPO}/releases/download/v${FL_VERSION}"
 TMP="$(mktemp -d 2>/dev/null || mktemp -d -t flutter-cli)"
 trap 'rm -rf "$TMP"' EXIT
 
-info "Downloading $ASSET…"
+info "Downloading $ASSET..."
 curl -fsSL --retry 3 -o "$TMP/$ASSET"        "$BASE/$ASSET"        || fail "download failed: $BASE/$ASSET" 2
 curl -fsSL --retry 3 -o "$TMP/$ASSET.sha256" "$BASE/$ASSET.sha256" || fail "checksum download failed: $BASE/$ASSET.sha256" 2
 
-info "Verifying sha256…"
+info "Verifying sha256..."
 expected="$(awk '{print $1; exit}' "$TMP/$ASSET.sha256")"
 actual="$( $SHACMD "$TMP/$ASSET" | awk '{print $1}' )"
 if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
@@ -189,7 +189,7 @@ MARK_END="# <<< flutter-cli shim <<<"
 if grep -Fq "$MARK_START" "$RC"; then
   info "flutter-cli shim already present in $RC — leaving it as-is"
 else
-  info "Patching $RC with the flutter-cli shim…"
+  info "Patching $RC with the flutter-cli shim..."
   if [ "$SHELL_KIND" = "fish" ]; then
     EVAL_LINE='flutter-cli init fish | source'
   else
@@ -212,5 +212,5 @@ ${BOLD}Done.${RESET} To activate the shim in your current shell:
     ${BOLD}source $RC${RESET}
 
 Then try ${BOLD}flutter run${RESET} — the TUI should take over.
-Other ${BOLD}flutter ...${RESET} commands (pub, doctor, clean, …) pass through unchanged.
+Other ${BOLD}flutter ...${RESET} commands (pub, doctor, clean, ...) pass through unchanged.
 EOF
