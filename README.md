@@ -53,7 +53,39 @@ flutter run
 
 🪄 The TUI takes over. Your IDE keeps using vanilla `flutter` (the shim only fires in your terminal), and `flutter pub`, `flutter doctor`, `flutter clean` — anything we don't enhance — passes through unchanged.
 
-**To remove, run `./uninstall.sh` or delete the eval line.** Non-invasive by design.
+### Upgrade
+
+Re-run the same install line. The script is idempotent: it resolves the latest release, overwrites the binary on your PATH, and leaves the shell shim untouched (it's already there). No reload needed — the shim invokes `flutter-cli` fresh on every call, so your next `flutter run` picks up the new binary.
+
+```sh
+# latest release
+curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | bash
+
+# pin a specific version
+curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/install.sh | FL_VERSION=0.4.3 bash
+
+# npm side
+npm i -g @antoinegtir/flutter-cli   # or `npm update -g @antoinegtir/flutter-cli`
+```
+
+### Uninstall
+
+No clone required — fetch and pipe the uninstaller. It strips the shim from every shell rc / profile file it can find (`.zshrc`, `.zprofile`, `.zlogin`, `.bashrc`, `.bash_profile`, `.profile`, `~/.config/fish/config.fish`) and removes the binary from every known install location (`~/.local/bin`, `~/.cargo/bin`, `/usr/local/bin`, and `$BIN_DIR` if you customized it).
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/uninstall.sh | bash
+
+# keep the binary, strip only the shell shim
+curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/uninstall.sh | bash -s -- --keep-bin
+
+# keep the shim, remove only the binary
+curl -fsSL https://raw.githubusercontent.com/Antoinegtir/flutter-cli/master/uninstall.sh | bash -s -- --keep-rc
+
+# npm side
+npm uninstall -g @antoinegtir/flutter-cli
+```
+
+If you cloned the repo, `./install.sh` and `./uninstall.sh` work the same way locally. Either way, the design is non-invasive — uninstalling restores your shell to its pre-flutter-cli state.
 
 ### Don't want a shim?
 
