@@ -207,6 +207,14 @@ function wireShim() {
     // shell work — silently skip so we don't pollute logs.
     return;
   }
+  // Only wire the shim for global installs. `npx @antoinegtir/flutter-cli`
+  // and plain `npm install` (local) both hit our postinstall, and in
+  // both cases modifying the user's shell rc would be a surprise side
+  // effect they didn't consent to. npm sets `npm_config_global=true`
+  // only for `npm i -g …` — that's our consent signal.
+  if (process.env.npm_config_global !== 'true') {
+    return;
+  }
   if (process.platform === 'win32') {
     // Windows doesn't have a single rc-file convention that maps to
     // the bash/zsh/fish shim we emit. Users on PowerShell or cmd

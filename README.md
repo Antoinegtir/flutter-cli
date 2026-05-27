@@ -13,6 +13,14 @@ A modern terminal UI for Flutter — hot reload across N devices, real-time perf
 
 </div>
 
+## Try it without installing
+
+```sh
+npx @antoinegtir/flutter-cli run
+```
+
+Fetches the binary into npm's cache, no shell shim, no rc edits — just runs the dashboard on the current project. Swap `run` for `test`, `build`, or `devices`.
+
 ## Install
 
 ```sh
