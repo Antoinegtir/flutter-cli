@@ -117,6 +117,48 @@ async function extractZip(stream, destDir) {
 const SHIM_MARK_START = '# >>> flutter-cli shim >>>';
 const SHIM_MARK_END   = '# <<< flutter-cli shim <<<';
 
+// npm 7+ swallows postinstall stdout/stderr by default — users only
+// see "added N packages in Ms" and miss every hint we print. Writing
+// to /dev/tty bypasses npm's capture entirely: the message goes
+// straight to the controlling terminal. If there's no tty (CI,
+// docker non-interactive, piped install), we fall back to stderr.
+function notifyUser(message) {
+  if (process.platform === 'win32') {
+    // No /dev/tty on Windows; stderr works in PowerShell.
+    process.stderr.write(message + '\n');
+    return;
+  }
+  try {
+    const tty = fs.openSync('/dev/tty', 'w');
+    fs.writeSync(tty, message + '\n');
+    fs.closeSync(tty);
+  } catch {
+    process.stderr.write(message + '\n');
+  }
+}
+
+// Render a hard-to-miss banner. Color codes only kick in when we
+// actually have a TTY (no point coloring CI logs).
+function banner(title, lines) {
+  const useColor = (() => {
+    if (process.env.NO_COLOR) return false;
+    try { return fs.statSync('/dev/tty').isCharacterDevice(); }
+    catch { return false; }
+  })();
+  const BOLD  = useColor ? '\x1b[1m'  : '';
+  const GREEN = useColor ? '\x1b[32m' : '';
+  const RESET = useColor ? '\x1b[0m'  : '';
+  const bar = '─'.repeat(64);
+  const out = [];
+  out.push('');
+  out.push(`${GREEN}${bar}${RESET}`);
+  out.push(`${BOLD}${title}${RESET}`);
+  out.push('');
+  for (const line of lines) out.push(`  ${line}`);
+  out.push(`${GREEN}${bar}${RESET}`);
+  return out.join('\n');
+}
+
 // Map $SHELL basename → { kind, rc path, eval line }. We use the same
 // rc precedence as install.sh.
 function detectShell() {
@@ -130,20 +172,23 @@ function detectShell() {
 }
 
 function printManualShimInstructions(reason) {
-  // No emoji — keep parity with install.sh, which sticks to ASCII so
-  // locales without UTF-8 don't get mojibake in their install logs.
+  // Use the /dev/tty notifyUser path so npm 7+'s default postinstall
+  // muting doesn't swallow the instructions — same reasoning as the
+  // success banner.
   const sh = detectShell();
   const shellGuess = sh?.kind || 'zsh';
   const rcGuess    = sh?.rc   || '~/.zshrc';
   const evalGuess  = sh?.evalLine || 'eval "$(flutter-cli init zsh)"';
-  console.log('');
-  console.log(`flutter-cli: skipped shell shim (${reason}).`);
-  console.log('To intercept `flutter run` with the TUI, add this line to your shell rc:');
-  console.log('');
-  console.log(`    ${evalGuess}`);
-  console.log('');
-  console.log(`(typical file for ${shellGuess}: ${rcGuess})`);
-  console.log('Then open a new terminal — or `source` the file.');
+  notifyUser(banner('flutter-cli: shell shim NOT installed', [
+    `Reason: ${reason}.`,
+    '',
+    'Add this line to your shell rc to enable the TUI:',
+    '',
+    `    ${evalGuess}`,
+    '',
+    `(typical file for ${shellGuess}: ${rcGuess})`,
+    'Then open a new terminal — or `source` the file.',
+  ]));
 }
 
 function wireShim() {
@@ -192,7 +237,10 @@ function wireShim() {
     }
     const current = fs.readFileSync(shell.rc, 'utf8');
     if (current.includes(SHIM_MARK_START)) {
-      console.log(`flutter-cli: shim already present in ${shell.rc} — leaving it as-is`);
+      // Re-install / upgrade path: the shim is already present, so
+      // the user's existing terminals continue to work. No banner —
+      // they already know how this thing behaves.
+      notifyUser(`flutter-cli: shim already present in ${shell.rc} — leaving it as-is`);
       return;
     }
     const block =
@@ -201,9 +249,25 @@ function wireShim() {
       `${shell.evalLine}\n` +
       `${SHIM_MARK_END}\n`;
     fs.appendFileSync(shell.rc, block);
-    console.log('');
-    console.log(`flutter-cli: added shim to ${shell.rc}`);
-    console.log('Open a new terminal (or run `source ' + shell.rc + '`) — then `flutter run` opens the TUI.');
+    // npm 7+ swallows postinstall stdout by default — this banner
+    // goes to /dev/tty so the user actually sees the "open a new
+    // terminal" step. Without this, every fresh `npm i -g` user
+    // gets the binary on PATH but stays on vanilla `flutter` until
+    // they figure out the missing shell-reload step on their own.
+    notifyUser(banner('flutter-cli installed — ONE LAST STEP', [
+      `Shim added to ${shell.rc}.`,
+      '',
+      'The shim is a shell function, so your CURRENT terminal',
+      "doesn't know about it yet. To activate the TUI:",
+      '',
+      '    open a new terminal',
+      '',
+      'or run:',
+      '',
+      `    source ${shell.rc}`,
+      '',
+      'Then `flutter run` opens the multi-device dashboard.',
+    ]));
   } catch (err) {
     printManualShimInstructions(`couldn't write ${shell.rc}: ${err.message}`);
   }
