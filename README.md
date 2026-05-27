@@ -23,12 +23,7 @@ or:
 npm i -g @antoinegtir/flutter-cli
 ```
 
-The installer drops a binary on your `PATH` and adds one line to your shell rc:
-```sh
-eval "$(flutter-cli init <bash|zsh|fish>)"
-```
-
-That routes `flutter run` / `test` / `build` / `devices` through the TUI. Your IDE keeps using vanilla `flutter`; everything else (`flutter pub`, `doctor`, `clean`, …) passes through unchanged.
+Both paths drop a binary on your `PATH` and wire the shell shim into your rc automatically. Open a new terminal — `flutter run` / `test` / `build` / `devices` now route through the TUI. Your IDE keeps using vanilla `flutter`; everything else (`flutter pub`, `doctor`, `clean`, …) passes through unchanged.
 
 **Requirements:** an existing Flutter SDK reachable via `PATH`, [FVM](https://fvm.app), or `$FLUTTER_ROOT`. macOS / Linux / Windows (bash, zsh, fish, Git Bash, WSL).
 

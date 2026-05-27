@@ -99,6 +99,116 @@ async function extractZip(stream, destDir) {
   fs.unlinkSync(tmp);
 }
 
+// ─── shell-shim wiring ────────────────────────────────────────────
+//
+// `install.sh` (curl | bash) appends an `eval "$(flutter-cli init …)"`
+// block to the user's shell rc so that `flutter run` is intercepted by
+// the TUI. Without this, the binary is on PATH but a bare `flutter
+// run` still routes to vanilla flutter — which surprised every user
+// who reached for `npm i -g` instead of the curl script.
+//
+// We mirror install.sh's behavior here, using the same sentinel
+// markers so `uninstall.sh` continues to strip both kinds of installs
+// in one pass. Everything is wrapped in try/catch and best-effort:
+// any failure prints instructions and lets the install succeed,
+// because failing the postinstall would break `npm i` of any package
+// that transitively depends on us.
+
+const SHIM_MARK_START = '# >>> flutter-cli shim >>>';
+const SHIM_MARK_END   = '# <<< flutter-cli shim <<<';
+
+// Map $SHELL basename → { kind, rc path, eval line }. We use the same
+// rc precedence as install.sh.
+function detectShell() {
+  const sh = process.env.SHELL || '';
+  const home = os.homedir();
+  if (!home) return null;
+  if (sh.endsWith('/zsh'))  return { kind: 'zsh',  rc: path.join(home, '.zshrc'),  evalLine: 'eval "$(flutter-cli init zsh)"' };
+  if (sh.endsWith('/bash')) return { kind: 'bash', rc: path.join(home, '.bashrc'), evalLine: 'eval "$(flutter-cli init bash)"' };
+  if (sh.endsWith('/fish')) return { kind: 'fish', rc: path.join(home, '.config/fish/config.fish'), evalLine: 'flutter-cli init fish | source' };
+  return null;
+}
+
+function printManualShimInstructions(reason) {
+  // No emoji — keep parity with install.sh, which sticks to ASCII so
+  // locales without UTF-8 don't get mojibake in their install logs.
+  const sh = detectShell();
+  const shellGuess = sh?.kind || 'zsh';
+  const rcGuess    = sh?.rc   || '~/.zshrc';
+  const evalGuess  = sh?.evalLine || 'eval "$(flutter-cli init zsh)"';
+  console.log('');
+  console.log(`flutter-cli: skipped shell shim (${reason}).`);
+  console.log('To intercept `flutter run` with the TUI, add this line to your shell rc:');
+  console.log('');
+  console.log(`    ${evalGuess}`);
+  console.log('');
+  console.log(`(typical file for ${shellGuess}: ${rcGuess})`);
+  console.log('Then open a new terminal — or `source` the file.');
+}
+
+function wireShim() {
+  // The exec'd binary is what `flutter-cli init <shell>` will resolve
+  // to at runtime — but only if it's on PATH. npm puts the wrapper
+  // (bin/flutter-cli.js) on PATH automatically, so `flutter-cli` will
+  // resolve to the wrapper, which exec's our native binary. That's
+  // exactly what we want.
+
+  if (process.env.FLUTTER_CLI_SKIP_SHIM === '1') {
+    printManualShimInstructions('FLUTTER_CLI_SKIP_SHIM=1');
+    return;
+  }
+  if (process.env.CI === 'true' || process.env.CI === '1') {
+    // CI runs of `npm i -g` are almost never followed by interactive
+    // shell work — silently skip so we don't pollute logs.
+    return;
+  }
+  if (process.platform === 'win32') {
+    // Windows doesn't have a single rc-file convention that maps to
+    // the bash/zsh/fish shim we emit. Users on PowerShell or cmd
+    // typically don't need the interception either (they call
+    // `flutter-cli` directly). Skip gracefully.
+    return;
+  }
+  // Running under sudo writes into root's HOME — never what the user
+  // wants. install.sh has the same guard implicitly (it requires a
+  // writable rc and bails on permission errors).
+  if (typeof process.getuid === 'function' && process.getuid() === 0) {
+    printManualShimInstructions('running as root');
+    return;
+  }
+
+  const shell = detectShell();
+  if (!shell) {
+    printManualShimInstructions('could not detect $SHELL');
+    return;
+  }
+
+  try {
+    fs.mkdirSync(path.dirname(shell.rc), { recursive: true });
+    // Create the rc if it doesn't exist — install.sh does the same
+    // via `touch`, so re-installing on a fresh machine still works.
+    if (!fs.existsSync(shell.rc)) {
+      fs.writeFileSync(shell.rc, '');
+    }
+    const current = fs.readFileSync(shell.rc, 'utf8');
+    if (current.includes(SHIM_MARK_START)) {
+      console.log(`flutter-cli: shim already present in ${shell.rc} — leaving it as-is`);
+      return;
+    }
+    const block =
+      `\n${SHIM_MARK_START}\n` +
+      `# Auto-added by @antoinegtir/flutter-cli postinstall. Run \`npm uninstall -g @antoinegtir/flutter-cli\` (or uninstall.sh) to remove.\n` +
+      `${shell.evalLine}\n` +
+      `${SHIM_MARK_END}\n`;
+    fs.appendFileSync(shell.rc, block);
+    console.log('');
+    console.log(`flutter-cli: added shim to ${shell.rc}`);
+    console.log('Open a new terminal (or run `source ' + shell.rc + '`) — then `flutter run` opens the TUI.');
+  } catch (err) {
+    printManualShimInstructions(`couldn't write ${shell.rc}: ${err.message}`);
+  }
+}
+
 async function main() {
   // Allow CI / docker builds to skip the download (binaries are
   // typically vendored elsewhere). Same pattern as esbuild.
@@ -139,6 +249,11 @@ async function main() {
   }
   fs.rmSync(stageDir, { recursive: true, force: true });
   console.log(`flutter-cli: installed ${dst}`);
+
+  // Wire the shim — this is the whole reason `npm i -g` exists as a
+  // first-class install path next to `curl | bash`. Best-effort: any
+  // failure is logged but doesn't fail the install.
+  wireShim();
 }
 
 main().catch((err) => {
