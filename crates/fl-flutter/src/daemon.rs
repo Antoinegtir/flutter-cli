@@ -84,7 +84,21 @@ impl FlutterDaemon {
     ) -> anyhow::Result<Self> {
         let mut args: Vec<&str> = vec!["run", "--machine", "-d", device_id];
         args.extend_from_slice(extra_args);
-        Self::spawn_with_args(flutter, project_dir, &args, &[], tx).await
+        // FLUTTER_DAEMON_XCODE_PROGRESS=1 asks our patched flutter_tools
+        // (packages/flutter_tools/lib/src/ios/mac.dart) to emit each
+        // Xcode build line as an `app.progress` event tagged
+        // `progressId: 'xcode.build.line'`. The dashboard counts these
+        // to compute a REAL progress percentage during the Xcode phase
+        // instead of falling back to a time-based heuristic.
+        //
+        // Stock Flutter ignores the env var (the patch is gated on it),
+        // so flutter-cli still works against an unmodified SDK — just
+        // with the time-based estimate.
+        let env: Vec<(String, String)> = vec![(
+            "FLUTTER_DAEMON_XCODE_PROGRESS".to_string(),
+            "1".to_string(),
+        )];
+        Self::spawn_with_args(flutter, project_dir, &args, &env, tx).await
     }
 
     async fn spawn_with_args(

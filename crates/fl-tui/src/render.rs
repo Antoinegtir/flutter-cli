@@ -120,12 +120,25 @@ fn estimated_percentage(state: &AppState) -> u8 {
         match phase.finished_at {
             Some(_) => pct += weight,
             None => {
-                let elapsed = phase.started_at.elapsed().as_secs_f64();
-                let estimated = phase_estimated_secs(phase) as f64;
-                // Inside-phase progress saturates at 0.95 so a long
-                // Xcode build doesn't slide the bar all the way to
-                // 100% before the closer event arrives.
-                let inside = (elapsed / estimated).min(0.95);
+                // Prefer REAL progress from observed Xcode sub-steps
+                // when our patched flutter_tools emits them. Each
+                // `xcode.build.line` event = one compile / link /
+                // process step that actually ran, so the count is a
+                // genuine measure of "work done" — not a timer guess.
+                // Without a known total we use a typical-build
+                // denominator (TYPICAL_XCODE_STEPS); the inside-phase
+                // value still saturates at 0.95 so the bar never
+                // pre-empts the daemon's closer event.
+                let inside = if phase.xcode_sub_steps > 0
+                    && phase.message.to_ascii_lowercase().contains("xcode build")
+                {
+                    const TYPICAL_XCODE_STEPS: f64 = 120.0;
+                    (phase.xcode_sub_steps as f64 / TYPICAL_XCODE_STEPS).min(0.95)
+                } else {
+                    let elapsed = phase.started_at.elapsed().as_secs_f64();
+                    let estimated = phase_estimated_secs(phase) as f64;
+                    (elapsed / estimated).min(0.95)
+                };
                 pct += weight * inside;
                 break;
             }
@@ -787,6 +800,7 @@ mod tests {
             message: msg.into(),
             started_at: std::time::Instant::now(),
             finished_at: None,
+            xcode_sub_steps: 0,
         }
     }
 
@@ -848,6 +862,7 @@ mod tests {
             message: "Running Xcode build...".into(),
             started_at: now,
             finished_at: Some(now),
+            xcode_sub_steps: 0,
         });
         state.progress_phases.push(crate::app::ProgressPhase {
             id: "2".into(),
@@ -855,6 +870,7 @@ mod tests {
             message: "Installing and launching...".into(),
             started_at: now,
             finished_at: Some(now),
+            xcode_sub_steps: 0,
         });
         let pct = estimated_percentage(&state);
         assert!((85..=99).contains(&pct), "got pct={pct}");
@@ -867,6 +883,63 @@ mod tests {
         let state = AppState::new("a".into(), "d".into());
         let pct = estimated_percentage(&state);
         assert!(pct <= 3);
+    }
+
+    #[test]
+    fn xcode_sub_steps_drive_real_progress_when_available() {
+        use fl_core::{AppEvent, FlutterEvent};
+        let mut state = AppState::new("a".into(), "d".into());
+        // Parent phase
+        state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+            id: "1".into(),
+            progress_id: None,
+            message: "Running Xcode build...".into(),
+            finished: false,
+        }));
+        let p0 = estimated_percentage(&state);
+
+        // Feed 60 xcode.build.line sub-events under the parent (Xcode is 65%
+        // weight, denominator 120, so 60/120 → 50% inside-phase →
+        // ~32% pct).
+        for _ in 0..60 {
+            state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+                id: "sub".into(),
+                progress_id: Some("xcode.build.line".into()),
+                message: "Compile main.m".into(),
+                finished: false,
+            }));
+        }
+        let p_after = estimated_percentage(&state);
+        assert!(
+            p_after > p0,
+            "sub-steps should advance the bar: before={p0} after={p_after}"
+        );
+        assert!(
+            (25..=40).contains(&p_after),
+            "60/120 of a 65% phase ≈ 32%, got {p_after}"
+        );
+    }
+
+    #[test]
+    fn xcode_sub_step_events_dont_create_new_phases() {
+        use fl_core::{AppEvent, FlutterEvent};
+        let mut state = AppState::new("a".into(), "d".into());
+        state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+            id: "1".into(),
+            progress_id: None,
+            message: "Running Xcode build...".into(),
+            finished: false,
+        }));
+        for _ in 0..5 {
+            state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+                id: "sub".into(),
+                progress_id: Some("xcode.build.line".into()),
+                message: "CompileSwift Foo.swift".into(),
+                finished: false,
+            }));
+        }
+        assert_eq!(state.progress_phases.len(), 1);
+        assert_eq!(state.progress_phases[0].xcode_sub_steps, 5);
     }
 
     #[test]

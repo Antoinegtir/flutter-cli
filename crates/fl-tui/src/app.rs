@@ -186,6 +186,14 @@ pub struct ProgressPhase {
     pub started_at: std::time::Instant,
     /// Local time the phase finished, `None` while still in progress.
     pub finished_at: Option<std::time::Instant>,
+    /// Count of `xcode.build.line` sub-events observed under this
+    /// phase. Used by the dashboard to compute a real percentage from
+    /// observed Xcode work (each tick = one compile / link / process
+    /// step) instead of pure time-based interpolation. Only meaningful
+    /// for the Xcode build phase, where our patched flutter_tools
+    /// (mac.dart) emits one event per Xcode log line when
+    /// `FLUTTER_DAEMON_XCODE_PROGRESS=1` is set.
+    pub xcode_sub_steps: u32,
 }
 
 /// Single HTTP request snapshot, captured by polling
@@ -515,6 +523,36 @@ impl AppState {
                 message,
                 finished,
             } => {
+                // `xcode.build.line` is emitted by our patched
+                // flutter_tools (mac.dart) once per Xcode build output
+                // line. We do NOT create a new phase for these — they
+                // are sub-events of the parent "Running Xcode build…"
+                // phase. Instead we increment the parent's
+                // `xcode_sub_steps` counter so the renderer can derive
+                // a real-progress percentage from observed Xcode work.
+                let is_xcode_sub = progress_id.as_deref() == Some("xcode.build.line");
+                if is_xcode_sub {
+                    if !finished {
+                        if let Some(parent) = self
+                            .progress_phases
+                            .iter_mut()
+                            .rev()
+                            .find(|p| {
+                                p.finished_at.is_none()
+                                    && p.message.to_ascii_lowercase().contains("xcode build")
+                            })
+                        {
+                            parent.xcode_sub_steps =
+                                parent.xcode_sub_steps.saturating_add(1);
+                        }
+                    }
+                    // We deliberately do NOT mirror sub-events to logs:
+                    // there can be hundreds per build and they'd drown
+                    // the scrollback. The aggregate parent phase
+                    // message ("Running Xcode build...") is already
+                    // logged when the parent opened.
+                    return;
+                }
                 // Track the phase for the dashboard loading bar. The
                 // daemon emits TWO events per phase: an opener (with
                 // message + finished=false) and a closer (finished=true,
@@ -535,6 +573,7 @@ impl AppState {
                         message: message.clone(),
                         started_at: std::time::Instant::now(),
                         finished_at: None,
+                        xcode_sub_steps: 0,
                     });
                 }
                 // Mirror to logs so the user can still scroll back to
