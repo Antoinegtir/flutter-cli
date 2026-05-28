@@ -698,16 +698,16 @@ impl TuiRunner {
     fn handle_event(&mut self, state: &mut AppState, ev: AppEvent, theme: &Theme) {
         if matches!(self.mode, ViewportMode::Inline) {
             match &ev {
-                AppEvent::Flutter(fl_core::FlutterEvent::Log { level, message }) => {
+                AppEvent::Flutter(fl_core::FlutterEvent::Log { level, message })
+                    if log_matches_filter(state.log_filter.as_deref(), *level, message) =>
+                {
                     // Apply the active log filter, if any. A non-matching
                     // line is still recorded in state.logs (so it's
                     // visible again the moment the user clears the
                     // filter), it just doesn't get printed to the
                     // terminal scrollback.
-                    if log_matches_filter(state.log_filter.as_deref(), *level, message) {
-                        let (prefix, color) = log_style_for(*level, message, theme);
-                        let _ = self.print_above_viewport(prefix, message, color);
-                    }
+                    let (prefix, color) = log_style_for(*level, message, theme);
+                    let _ = self.print_above_viewport(prefix, message, color);
                 }
                 AppEvent::Flutter(fl_core::FlutterEvent::AppStarted {
                     app_id,

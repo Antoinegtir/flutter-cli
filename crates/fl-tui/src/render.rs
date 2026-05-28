@@ -31,26 +31,14 @@ const FOOTER_BINDS: &[&str] = &[
     "[P] perf",
 ];
 
-// Pre-ready variants: shown while the app is still compiling /
-// installing / waiting on VM Service. We omit r/R/b/p/P/o because
-// they're no-ops at that point — the user pressing them just spams
-// the log with "not ready" warnings.
-//
-// `e` (jump to error in IDE) IS surfaced here even though the app
-// isn't running: it's the moment the user needs it most, since most
-// pre-ready failures are Dart compilation errors with a file ref in
-// the log. Same reason `/` (filter) and `c` (copy) stay.
-//
-// The prefix (the "building" hint) shimmers; the suffix (the static
-// keys) is rendered with the normal dimmed footer style. Splitting
-// avoids running the shimmer animation over key labels, which would
-// look messy.
-const FOOTER_FULL_PRE_READY_SHIMMER: &str = " ⏳ building app… ";
+// Pre-ready footer suffix: kept compact so the percentage progress
+// bar in `render_footer` always has room. `e` (jump to error in IDE)
+// is surfaced even though the app isn't running yet — it's the
+// moment the user needs it most, since most pre-ready failures are
+// Dart compilation errors with a file ref in the log.
 const FOOTER_FULL_PRE_READY_STATIC: &str =
     " [e] error ↗  [/] filter  [c] copy 📋  [q] quit ";
-const FOOTER_MEDIUM_PRE_READY_SHIMMER: &str = " ⏳ building… ";
 const FOOTER_MEDIUM_PRE_READY_STATIC: &str = " [e] err  [q] quit ";
-const FOOTER_SHORT_PRE_READY_SHIMMER: &str = " ⏳ building ";
 const FOOTER_SHORT_PRE_READY_STATIC: &str = "· e err · q quit ";
 
 const MIN_WIDTH: u16 = 50;
@@ -63,208 +51,137 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
         render_too_small(area, buf, theme);
         return;
     }
-    // Inline-viewport layout (Claude-Code style). Logs no longer live
-    // in this buffer — they're printed directly into the terminal's
-    // scrollback (see `TuiRunner::print_above_viewport`) and scroll
-    // naturally above the box. What remains here, pinned to the bottom
-    // of the terminal, is the live status surface:
+    // Inline-viewport layout (Claude-Code style). Logs flow into the
+    // terminal's scrollback (see `TuiRunner::print_above_viewport`) and
+    // scroll naturally above the box. What remains pinned to the
+    // bottom is the live status surface:
     //   1. fl-info status header   (3 rows)
-    //   2. Loading progress strip  (1 row — pre-ready only, hidden when
-    //                               VM Service is connected)
-    //   3. Performance + Devices   (flex — takes the remaining rows)
-    //   4. Footer keybinds         (1 row)
-    let show_progress = !state.app_ready() && !state.progress_phases.is_empty();
-    let constraints: &[Constraint] = if show_progress {
-        &[
-            Constraint::Length(HEADER_HEIGHT),
-            Constraint::Length(1),
-            Constraint::Min(4),
-            Constraint::Length(1),
-        ]
-    } else {
-        &[
-            Constraint::Length(HEADER_HEIGHT),
-            Constraint::Min(4),
-            Constraint::Length(1),
-        ]
-    };
+    //   2. Performance + Devices   (flex)
+    //   3. Footer                  (1 row — keybinds when ready, a
+    //                               percentage progress bar pre-ready)
     let layout = Layout::default()
         .direction(Direction::Vertical)
-        .constraints(constraints)
+        .constraints([
+            Constraint::Length(HEADER_HEIGHT),
+            Constraint::Min(4),
+            Constraint::Length(1),
+        ])
         .split(area);
     render_header(layout[0], buf, state, theme);
-    if show_progress {
-        render_progress_strip(layout[1], buf, state, theme);
-        render_status_panels(layout[2], buf, state, theme);
-        render_footer(layout[3], buf, state, theme);
-    } else {
-        render_status_panels(layout[1], buf, state, theme);
-        render_footer(layout[2], buf, state, theme);
-    }
+    render_status_panels(layout[1], buf, state, theme);
+    render_footer(layout[2], buf, state, theme);
 }
 
-/// Pre-ready loading strip: stepper of completed phases + the one
-/// currently active, plus an indeterminate animated bar that conveys
-/// "yes, still working" without faking a percentage. Renders into
-/// a single row right below the header.
-///
-/// Format on a wide terminal:
-///
-///   `[████░░░░░] ⏳ Installing and launching... · 0:08   ✓ Resolve [0.4s] · ✓ Build [4:18] · ⏳ Install [0:08]`
-///
-/// On narrow terminals the right-side stepper is dropped — current
-/// phase + indeterminate bar always survive.
-fn render_progress_strip(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
-    use ratatui::text::Span;
-    if area.width == 0 {
-        return;
-    }
-    let current = state.current_progress_phase();
-    let phase_label = current
-        .map(|p| p.message.as_str())
-        .unwrap_or("Waiting for next phase…");
-    let phase_elapsed = current.map(|p| p.started_at.elapsed()).unwrap_or_default();
-    let label = format!(" ⏳ {phase_label} · {} ", format_short(phase_elapsed));
-
-    // Indeterminate bar — fixed width, animated sweep.
-    const BAR_W: usize = 14;
-    let bar = indeterminate_bar(BAR_W, state.started_at.elapsed());
-
-    // Right side: compact phase stepper. We pack as many phases as fit
-    // into whatever width is left after the bar + label.
-    let stepper = render_phase_stepper(state);
-
-    let label_w = label.chars().count();
-    let bar_w = BAR_W + 2; // `[` + bar + `]`
-    let stepper_w = stepper.chars().count();
-    let total_w = label_w + bar_w + 1 + stepper_w; // 1 = gap
-    let bg = theme.bg;
-    let dim = theme.dim;
-    let accent = theme.accent;
-
-    let mut spans: Vec<Span<'static>> = Vec::with_capacity(4);
-    spans.push(Span::styled(
-        format!("[{bar}]"),
-        Style::default().fg(accent).bg(bg),
-    ));
-    spans.push(Span::styled(label, Style::default().fg(theme.fg).bg(bg)));
-    if total_w <= area.width as usize {
-        spans.push(Span::styled(
-            " ".repeat(area.width as usize - label_w - bar_w - stepper_w),
-            Style::default().bg(bg),
-        ));
-        spans.push(Span::styled(stepper, Style::default().fg(dim).bg(bg)));
-    } else {
-        // Drop the stepper, pad with bg so we don't leave glyphs behind.
-        let pad = (area.width as usize).saturating_sub(label_w + bar_w);
-        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(bg)));
-    }
-    Paragraph::new(Line::from(spans)).render(area, buf);
-}
-
-/// A `BAR_W`-wide indeterminate bar with a 3-cell highlight that
-/// sweeps left-to-right and bounces off the edges. Uses `█` for the
-/// highlight and `░` for the rest.
-fn indeterminate_bar(width: usize, elapsed: std::time::Duration) -> String {
+/// Determinate progress bar. Returns a `width`-wide string made of
+/// `█` (filled cells) and `░` (empty cells), proportional to
+/// `pct` ∈ [0, 100]. We use a single glyph type rather than the
+/// finer-grain 1/8-block shading because partial blocks render
+/// unevenly across the wide range of terminal fonts the user might
+/// have (JetBrains Mono in AS shows them at half height, for example).
+fn build_bar(width: usize, pct: u8) -> String {
     if width == 0 {
         return String::new();
     }
-    let cycle_ms = 1400u128;
-    let t = (elapsed.as_millis() % cycle_ms) as f32 / cycle_ms as f32;
-    // Triangular wave: 0 → 1 → 0
-    let phase = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
-    let head_w = 3usize;
-    let head_pos = (phase * (width.saturating_sub(head_w) as f32)).round() as usize;
+    let filled = (width as u32 * pct.min(100) as u32 / 100) as usize;
     let mut out = String::with_capacity(width);
-    for i in 0..width {
-        if i >= head_pos && i < head_pos + head_w {
-            out.push('█');
-        } else {
-            out.push('░');
-        }
+    for _ in 0..filled {
+        out.push('█');
+    }
+    for _ in filled..width {
+        out.push('░');
     }
     out
 }
 
-/// Format a `Duration` in a compact, terminal-friendly way:
-/// `< 60s` → `12s`, `< 1h` → `4:18`, otherwise `1:02:31`.
-fn format_short(d: std::time::Duration) -> String {
-    let secs = d.as_secs();
-    if secs < 60 {
-        format!("{secs}s")
-    } else if secs < 3600 {
-        format!("{m}:{s:02}", m = secs / 60, s = secs % 60)
-    } else {
-        format!(
-            "{h}:{m:02}:{s:02}",
-            h = secs / 3600,
-            m = (secs % 3600) / 60,
-            s = secs % 60
-        )
+/// Estimated launch progress in `[0, 100]`. Combines completed-phase
+/// weights with linear interpolation inside the current phase. Caps at
+/// 99 until the VM Service connects so we never show 100% before the
+/// app is actually ready.
+///
+/// Each known Flutter startup phase contributes a fixed slice of the
+/// 100% budget (`phase_weight`) and a typical duration we interpolate
+/// against (`phase_estimated_secs`). Unknown phases get a default 8%
+/// weight so they advance the bar by SOMETHING but don't overshoot.
+fn estimated_percentage(state: &AppState) -> u8 {
+    if state.app_ready() {
+        return 100;
     }
-}
-
-/// Build the compact phase stepper string from `state.progress_phases`.
-/// Done phases get `✓ Title [elapsed]`, the active phase gets
-/// `⏳ Title [elapsed]`, separated by ` · `.
-fn render_phase_stepper(state: &AppState) -> String {
+    // Pre-progress: a small seed value so the bar isn't dead at 0%
+    // during the first second of activity — `flutter run` takes a
+    // beat to emit its first event and a fully-empty bar reads as
+    // "frozen" to the user. Cap at 3% so we don't lie too much.
     if state.progress_phases.is_empty() {
-        return String::new();
+        let secs = state.started_at.elapsed().as_secs();
+        return secs.min(3) as u8;
     }
-    let mut parts: Vec<String> = Vec::with_capacity(state.progress_phases.len());
+    let mut pct: f64 = 0.0;
     for phase in &state.progress_phases {
-        let title = friendly_phase_title(phase);
-        let elapsed = match phase.finished_at {
-            Some(end) => end.duration_since(phase.started_at),
-            None => phase.started_at.elapsed(),
-        };
-        let mark = if phase.finished_at.is_some() {
-            "✓"
-        } else {
-            "⏳"
-        };
-        parts.push(format!("{mark} {title} [{}]", format_short(elapsed)));
+        let weight = phase_weight(phase) as f64;
+        match phase.finished_at {
+            Some(_) => pct += weight,
+            None => {
+                let elapsed = phase.started_at.elapsed().as_secs_f64();
+                let estimated = phase_estimated_secs(phase) as f64;
+                // Inside-phase progress saturates at 0.95 so a long
+                // Xcode build doesn't slide the bar all the way to
+                // 100% before the closer event arrives.
+                let inside = (elapsed / estimated).min(0.95);
+                pct += weight * inside;
+                break;
+            }
+        }
     }
-    parts.join(" · ")
+    pct.min(99.0).round() as u8
 }
 
-/// Strip trailing ellipses and shorten the most common Flutter
-/// phase messages to a few-letter title — keeps the stepper readable
-/// at every terminal width.
-fn friendly_phase_title(phase: &crate::app::ProgressPhase) -> String {
-    let m = phase.message.trim_end_matches('…').trim_end_matches('.').trim();
-    // Match against known startup phases first — saves columns and gives
-    // the user a recognisable label.
-    let lower = m.to_ascii_lowercase();
-    if lower.contains("xcode build") {
-        return "Build".to_string();
+/// Weight (in % points out of 100) of a single Flutter startup phase.
+/// Calibrated against an iPhone build + first launch — Xcode is by far
+/// the dominant cost, so it gets the lion's share of the bar. Sum of
+/// all known weights ≈ 100; unknown phases get a default 8%.
+fn phase_weight(phase: &crate::app::ProgressPhase) -> u8 {
+    let m = phase.message.to_ascii_lowercase();
+    if m.contains("xcode build") {
+        return 65;
     }
-    if lower.contains("installing and launching") {
-        return "Install".to_string();
+    if m.contains("gradle") {
+        return 60;
     }
-    if lower.contains("pod install") {
-        return "Pods".to_string();
+    if m.contains("installing and launching") {
+        return 20;
     }
-    if lower.contains("resolving dependencies") || lower.contains("running pub get") {
-        return "Resolve".to_string();
+    if m.contains("pod install") {
+        return 8;
     }
-    if lower.starts_with("performing hot reload") {
-        return "Hot reload".to_string();
+    if m.contains("resolving dependencies") || m.contains("running pub get") {
+        return 3;
     }
-    if lower.starts_with("performing hot restart") {
-        return "Hot restart".to_string();
+    if m.contains("waiting for connection") || m.contains("vm service") {
+        return 4;
     }
-    if lower.starts_with("compiling ") {
-        return "Compile".to_string();
+    8
+}
+
+/// Typical duration of a phase, in seconds — used to interpolate the
+/// bar smoothly between the opener and closer events. These are
+/// rough-and-tuned numbers that match what the project README quotes
+/// for an unoptimized iOS debug build (~90 s Xcode, ~15 s install).
+/// Could become per-project learned values later, but a global default
+/// is good enough for the bar to move at human speed.
+fn phase_estimated_secs(phase: &crate::app::ProgressPhase) -> u64 {
+    let m = phase.message.to_ascii_lowercase();
+    if m.contains("xcode build") {
+        return 90;
     }
-    if lower.contains("connecting to the vm service")
-        || lower.contains("waiting for connection from debug service")
-    {
-        return "VM".to_string();
+    if m.contains("gradle") {
+        return 45;
     }
-    // Fallback: keep the first 18 visible chars so the stepper stays
-    // narrow. The full message lives in scrollback for the curious.
-    m.chars().take(18).collect()
+    if m.contains("installing and launching") {
+        return 15;
+    }
+    if m.contains("pod install") {
+        return 30;
+    }
+    10
 }
 
 /// Performance + Devices panels in the lower portion of the viewport,
@@ -548,36 +465,58 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         return;
     }
 
-    // Pre-ready: shimmer the "building app…" hint to signal "work in
-    // progress, please wait" — the same animation we use for the
-    // header "Building…" status so the two feel unified.
-    let (shimmer_text, static_text) = if area.width as usize
-        >= (FOOTER_FULL_PRE_READY_SHIMMER.chars().count()
-            + FOOTER_FULL_PRE_READY_STATIC.chars().count())
-    {
-        (FOOTER_FULL_PRE_READY_SHIMMER, FOOTER_FULL_PRE_READY_STATIC)
-    } else if area.width as usize
-        >= (FOOTER_MEDIUM_PRE_READY_SHIMMER.chars().count()
-            + FOOTER_MEDIUM_PRE_READY_STATIC.chars().count())
-    {
-        (
-            FOOTER_MEDIUM_PRE_READY_SHIMMER,
-            FOOTER_MEDIUM_PRE_READY_STATIC,
-        )
+    // Pre-ready: render a real percentage bar (driven by daemon
+    // progress events) in place of the old shimmer hint. The static
+    // keybinds suffix is kept dimmed and right-aligned. Format on a
+    // wide terminal:
+    //
+    //   ` ⏳ 47% ████████████░░░░░░░░░░░░░░░  [e] error ↗  [/] filter  [c] copy 📋  [q] quit `
+    //
+    // The bar shrinks (and the static suffix degrades) on narrower
+    // terminals; on the very narrowest we drop the keybinds entirely
+    // so the bar always survives.
+    let pct = estimated_percentage(state);
+
+    let (label, static_text) = if area.width as usize >= 90 {
+        (format!(" ⏳ {pct:>2}% "), FOOTER_FULL_PRE_READY_STATIC)
+    } else if area.width as usize >= 60 {
+        (format!(" ⏳ {pct:>2}% "), FOOTER_MEDIUM_PRE_READY_STATIC)
     } else {
-        (
-            FOOTER_SHORT_PRE_READY_SHIMMER,
-            FOOTER_SHORT_PRE_READY_STATIC,
-        )
+        (format!(" ⏳ {pct:>2}% "), FOOTER_SHORT_PRE_READY_STATIC)
     };
 
-    let phase = shimmer_phase(state.started_at.elapsed());
-    let shimmer = shimmer_line(shimmer_text, theme.dim, theme.accent, phase, theme.bg);
-    let mut spans = shimmer.spans;
-    spans.push(ratatui::text::Span::styled(
-        static_text.to_string(),
-        theme.dimmed(),
-    ));
+    let label_w = label.chars().count();
+    let static_w = static_text.chars().count();
+    // Bar takes whatever's left between the label and the static suffix.
+    // 1-col cushion on each side keeps it from kissing the borders.
+    let bar_budget = (area.width as usize)
+        .saturating_sub(label_w)
+        .saturating_sub(static_w)
+        .saturating_sub(2);
+    // Clamp the bar to a comfortable maximum so super-wide terminals
+    // don't render a 200-cell-long bar that's visually noisy.
+    let bar_w = bar_budget.min(60);
+    let bar = build_bar(bar_w, pct);
+
+    let bg = theme.bg;
+    let bar_style = if pct >= 99 {
+        Style::default().fg(theme.success).bg(bg)
+    } else {
+        Style::default().fg(theme.accent).bg(bg)
+    };
+    let mid_pad = " ".repeat(
+        bar_budget
+            .saturating_sub(bar_w)
+            .max(1),
+    );
+
+    use ratatui::text::Span;
+    let spans = vec![
+        Span::styled(label, Style::default().fg(theme.fg).bg(bg)),
+        Span::styled(bar, bar_style),
+        Span::styled(mid_pad, Style::default().bg(bg)),
+        Span::styled(static_text.to_string(), theme.dimmed()),
+    ];
     Paragraph::new(Line::from(spans)).render(area, buf);
 }
 
@@ -678,9 +617,10 @@ mod tests {
     }
 
     #[test]
-    fn footer_pre_ready_hides_extension_keys_and_shows_building_hint() {
+    fn footer_pre_ready_shows_progress_bar_and_hides_extension_keys() {
         // A fresh AppState has vm_connected == false → footer should
-        // be the pre-ready variant and OMIT r/R/b/p/P/o entirely.
+        // render the progress bar variant and OMIT r/R/b/p/P/o keys
+        // (they're no-ops until the VM Service is up).
         let mut buf = Buffer::empty(Rect::new(0, 0, 60, 20));
         let state = AppState::new("my_app".into(), "debug".into());
         render(
@@ -690,7 +630,13 @@ mod tests {
             &Theme::TOKYO_NIGHT,
         );
         let text = dump(&buf);
-        assert!(text.contains("building"), "missing building hint:\n{text}");
+        // Bar surface: there must be a `%` token AND at least one bar
+        // glyph somewhere on the footer row.
+        assert!(text.contains('%'), "missing % in footer:\n{text}");
+        assert!(
+            text.chars().any(|c| c == '█' || c == '░'),
+            "missing bar glyphs:\n{text}"
+        );
         assert!(
             !text.contains("r reload") && !text.contains("[r] reload"),
             "pre-ready footer should NOT advertise reload:\n{text}"
@@ -832,43 +778,7 @@ mod tests {
         );
     }
 
-    // ── progress strip helpers ───────────────────────────────────────────
-
-    #[test]
-    fn format_short_under_a_minute() {
-        use std::time::Duration;
-        assert_eq!(format_short(Duration::from_secs(0)), "0s");
-        assert_eq!(format_short(Duration::from_secs(8)), "8s");
-        assert_eq!(format_short(Duration::from_secs(59)), "59s");
-    }
-
-    #[test]
-    fn format_short_minutes_then_hours() {
-        use std::time::Duration;
-        assert_eq!(format_short(Duration::from_secs(60)), "1:00");
-        assert_eq!(format_short(Duration::from_secs(4 * 60 + 18)), "4:18");
-        assert_eq!(format_short(Duration::from_secs(3600)), "1:00:00");
-        assert_eq!(format_short(Duration::from_secs(3661)), "1:01:01");
-    }
-
-    #[test]
-    fn indeterminate_bar_has_three_full_blocks() {
-        use std::time::Duration;
-        let s = indeterminate_bar(14, Duration::from_millis(0));
-        assert_eq!(s.chars().count(), 14);
-        let full = s.chars().filter(|c| *c == '█').count();
-        let dim = s.chars().filter(|c| *c == '░').count();
-        assert_eq!(full, 3, "exactly 3 head cells highlighted");
-        assert_eq!(dim, 11);
-    }
-
-    #[test]
-    fn indeterminate_bar_head_moves_with_time() {
-        use std::time::Duration;
-        let a = indeterminate_bar(14, Duration::from_millis(0));
-        let b = indeterminate_bar(14, Duration::from_millis(200));
-        assert_ne!(a, b, "the head should have moved");
-    }
+    // ── progress bar helpers ─────────────────────────────────────────────
 
     fn make_phase(msg: &str) -> crate::app::ProgressPhase {
         crate::app::ProgressPhase {
@@ -880,50 +790,90 @@ mod tests {
         }
     }
 
+    // ── build_bar ────────────────────────────────────────────────────────
+
     #[test]
-    fn friendly_phase_title_known_messages_get_short_labels() {
-        assert_eq!(
-            friendly_phase_title(&make_phase("Running Xcode build...")),
-            "Build"
-        );
-        assert_eq!(
-            friendly_phase_title(&make_phase("Installing and launching...")),
-            "Install"
-        );
-        assert_eq!(
-            friendly_phase_title(&make_phase("Running pod install...")),
-            "Pods"
-        );
-        assert_eq!(
-            friendly_phase_title(&make_phase("Resolving dependencies in `my_app`...")),
-            "Resolve"
-        );
-        assert_eq!(
-            friendly_phase_title(&make_phase("Performing hot reload...")),
-            "Hot reload"
-        );
+    fn build_bar_width_is_constant_and_fill_is_proportional() {
+        // Empty bar
+        let b0 = build_bar(20, 0);
+        assert_eq!(b0.chars().count(), 20);
+        assert_eq!(b0.chars().filter(|c| *c == '█').count(), 0);
+        // Half-full bar
+        let b50 = build_bar(20, 50);
+        assert_eq!(b50.chars().count(), 20);
+        assert_eq!(b50.chars().filter(|c| *c == '█').count(), 10);
+        // Full bar
+        let b100 = build_bar(20, 100);
+        assert_eq!(b100.chars().count(), 20);
+        assert_eq!(b100.chars().filter(|c| *c == '█').count(), 20);
     }
 
     #[test]
-    fn friendly_phase_title_unknown_message_is_truncated() {
-        let p = make_phase("Some quite long phase message that wouldn't fit");
-        let t = friendly_phase_title(&p);
-        assert!(t.chars().count() <= 18, "got: {t}");
+    fn build_bar_caps_pct_above_100() {
+        // pct values >100 shouldn't overflow the fill count.
+        let b = build_bar(10, 250);
+        assert_eq!(b.chars().filter(|c| *c == '█').count(), 10);
+    }
+
+    // ── phase weights / estimated_percentage ─────────────────────────────
+
+    #[test]
+    fn phase_weight_xcode_build_dominates() {
+        // Xcode is the longest phase by far → it carries the lion's share.
+        let w_xcode = phase_weight(&make_phase("Running Xcode build..."));
+        let w_install = phase_weight(&make_phase("Installing and launching..."));
+        let w_pods = phase_weight(&make_phase("Running pod install..."));
+        assert!(w_xcode > w_install);
+        assert!(w_install > w_pods);
+        assert_eq!(w_xcode, 65);
     }
 
     #[test]
-    fn progress_strip_only_visible_when_pre_ready_and_has_phases() {
+    fn estimated_percentage_is_100_when_ready() {
+        let mut state = AppState::new("a".into(), "d".into());
+        state.vm_connected = true;
+        assert_eq!(estimated_percentage(&state), 100);
+    }
+
+    #[test]
+    fn estimated_percentage_is_capped_at_99_pre_ready() {
+        // Simulate a completed Xcode build (65%) + completed install
+        // (20%) + completed VM service (4%) — sum is 89%. Bar still
+        // shouldn't show 100% until vm_connected.
+        let mut state = AppState::new("a".into(), "d".into());
+        let now = std::time::Instant::now();
+        state.progress_phases.push(crate::app::ProgressPhase {
+            id: "1".into(),
+            progress_id: None,
+            message: "Running Xcode build...".into(),
+            started_at: now,
+            finished_at: Some(now),
+        });
+        state.progress_phases.push(crate::app::ProgressPhase {
+            id: "2".into(),
+            progress_id: None,
+            message: "Installing and launching...".into(),
+            started_at: now,
+            finished_at: Some(now),
+        });
+        let pct = estimated_percentage(&state);
+        assert!((85..=99).contains(&pct), "got pct={pct}");
+    }
+
+    #[test]
+    fn estimated_percentage_seed_value_when_no_phases_yet() {
+        // First few seconds of activity: bar shouldn't be at 0 (looks
+        // frozen) but shouldn't fabricate either. Capped at 3.
+        let state = AppState::new("a".into(), "d".into());
+        let pct = estimated_percentage(&state);
+        assert!(pct <= 3);
+    }
+
+    #[test]
+    fn footer_pre_ready_renders_percent_and_bar_glyphs() {
+        // No phase yet → tiny seed %. Bar should still be present.
         use fl_core::{AppEvent, FlutterEvent};
         let mut state = AppState::new("a".into(), "d".into());
-        // No phases yet → strip stays hidden, dashboard layout unchanged.
-        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
-        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
-        let text_before = dump_buffer(&buf);
-        assert!(
-            !text_before.contains("⏳ Running Xcode build"),
-            "no phase yet → strip hidden"
-        );
-        // Apply a Progress event with non-empty message → phase active.
         state.apply(AppEvent::Flutter(FlutterEvent::Progress {
             id: "1".into(),
             progress_id: None,
@@ -932,14 +882,11 @@ mod tests {
         }));
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
         render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
-        let text_after = dump_buffer(&buf);
+        let text = dump_buffer(&buf);
+        assert!(text.contains('%'), "footer should print %, got:\n{text}");
         assert!(
-            text_after.contains("Running Xcode build"),
-            "active phase → strip visible:\n{text_after}"
-        );
-        assert!(
-            text_after.contains("Build"),
-            "stepper short-label visible:\n{text_after}"
+            text.chars().any(|c| c == '█' || c == '░'),
+            "bar glyphs missing:\n{text}"
         );
     }
 
