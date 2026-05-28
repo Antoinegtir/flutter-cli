@@ -1998,6 +1998,7 @@ fn print_event_pretty(ev: &AppEvent, elapsed: std::time::Duration) {
             id,
             message,
             finished,
+            progress_id: _,
         }) => {
             let mark = if *finished { "✓" } else { "…" };
             format!("\x1b[90m{ts}\x1b[0m \x1b[1;34mPROG \x1b[0m {mark} [{id}] {message}")

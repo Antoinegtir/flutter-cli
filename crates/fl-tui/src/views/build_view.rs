@@ -83,6 +83,7 @@ impl View for BuildView {
                 id,
                 message,
                 finished,
+                progress_id: _,
             } => {
                 if let Some(existing) = self.steps.iter_mut().find(|s| s.id == id) {
                     existing.message = message;
@@ -398,6 +399,7 @@ mod tests {
         let mut v = BuildView::new("apk".to_string(), BuildMode::Release);
         v.apply(FlutterEvent::Progress {
             id: "gradle".into(),
+            progress_id: None,
             message: "Running Gradle task".into(),
             finished: false,
         });
@@ -410,11 +412,13 @@ mod tests {
         let mut v = BuildView::new("apk".to_string(), BuildMode::Release);
         v.apply(FlutterEvent::Progress {
             id: "g".into(),
+            progress_id: None,
             message: "x".into(),
             finished: false,
         });
         v.apply(FlutterEvent::Progress {
             id: "g".into(),
+            progress_id: None,
             message: "x done".into(),
             finished: true,
         });
@@ -437,6 +441,7 @@ mod tests {
         let mut v = BuildView::new("apk".to_string(), BuildMode::Release);
         v.apply(FlutterEvent::Progress {
             id: "g".into(),
+            progress_id: None,
             message: "x".into(),
             finished: false,
         });

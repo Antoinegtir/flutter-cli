@@ -158,6 +158,34 @@ pub struct AppState {
     /// Lazily-detected IDE. `None` = not yet probed; `Some(None)` = probed
     /// but nothing found; `Some(Some(kind))` = found.
     pub ide_cache: Option<Option<crate::ide::IdeKind>>,
+    /// All `app.progress` phases observed so far in the current run,
+    /// in arrival order. The last entry's `finished_at == None` ⇒ it's
+    /// the *active* phase (what the user is waiting on right now).
+    /// Drives the loading bar shown in the dashboard header until the
+    /// VM Service is connected.
+    pub progress_phases: Vec<ProgressPhase>,
+}
+
+/// A single Flutter daemon progress phase — e.g. "Running Xcode
+/// build...", "Installing and launching...". We track the wall-clock
+/// span (`started_at` → `finished_at`) so the UI can both colour the
+/// stepper (done ✓ vs current ⏳) and show per-phase elapsed time.
+#[derive(Debug, Clone)]
+pub struct ProgressPhase {
+    /// Per-event daemon id (e.g. `"3"`). Used to match the closing
+    /// `finished: true` event back to the opener, since the daemon
+    /// reuses the same id for both.
+    pub id: String,
+    /// Phase tag the daemon attached (`devFS.update`, `hot.reload`, …).
+    /// `None` when the daemon didn't tag the event — many startup
+    /// phases are untagged and we pivot on `message` instead.
+    pub progress_id: Option<String>,
+    /// Human-readable phase title (`"Running Xcode build..."`, …).
+    pub message: String,
+    /// Local time the phase started.
+    pub started_at: std::time::Instant,
+    /// Local time the phase finished, `None` while still in progress.
+    pub finished_at: Option<std::time::Instant>,
 }
 
 /// Single HTTP request snapshot, captured by polling
@@ -243,6 +271,7 @@ impl AppState {
             quitting: false,
             project_root: std::env::current_dir().unwrap_or_default(),
             ide_cache: None,
+            progress_phases: Vec::new(),
         }
     }
 
@@ -275,6 +304,16 @@ impl AppState {
     /// spam the logs with "not ready" warnings.
     pub fn app_ready(&self) -> bool {
         self.vm_connected
+    }
+
+    /// The currently-active progress phase, if any. `None` once every
+    /// recorded phase has finished — used by the renderer to decide
+    /// whether to show the loading strip below the header.
+    pub fn current_progress_phase(&self) -> Option<&ProgressPhase> {
+        self.progress_phases
+            .iter()
+            .rev()
+            .find(|p| p.finished_at.is_none())
     }
 
     /// Duration to display on the chronometer. Live until `compile_finished`
@@ -471,8 +510,35 @@ impl AppState {
             }
             FlutterEvent::Log { level, message } => self.push_log(level, message),
             FlutterEvent::Progress {
-                message, finished, ..
+                id,
+                progress_id,
+                message,
+                finished,
             } => {
+                // Track the phase for the dashboard loading bar. The
+                // daemon emits TWO events per phase: an opener (with
+                // message + finished=false) and a closer (finished=true,
+                // usually with no message). We match them up by `id`.
+                if finished {
+                    if let Some(p) = self
+                        .progress_phases
+                        .iter_mut()
+                        .rev()
+                        .find(|p| p.id == id && p.finished_at.is_none())
+                    {
+                        p.finished_at = Some(std::time::Instant::now());
+                    }
+                } else if !message.is_empty() {
+                    self.progress_phases.push(ProgressPhase {
+                        id,
+                        progress_id,
+                        message: message.clone(),
+                        started_at: std::time::Instant::now(),
+                        finished_at: None,
+                    });
+                }
+                // Mirror to logs so the user can still scroll back to
+                // every phase in scrollback — same UX as before.
                 if !message.is_empty() {
                     self.push_log(
                         if finished {

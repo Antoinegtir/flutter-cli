@@ -66,24 +66,205 @@ pub fn render(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     // Inline-viewport layout (Claude-Code style). Logs no longer live
     // in this buffer — they're printed directly into the terminal's
     // scrollback (see `TuiRunner::print_above_viewport`) and scroll
-    // naturally above the box. The ASCII banner is also printed once
-    // at init into scrollback. What remains here, pinned to the
-    // bottom of the terminal, is the live status surface:
-    //   1. fl-info status header   (3 rows: app · mode · device + chrono;
-    //                              banners take over the title slot)
-    //   2. Performance + Devices   (flex — takes the remaining rows)
-    //   3. Footer keybinds         (1 row)
-    let layout = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
+    // naturally above the box. What remains here, pinned to the bottom
+    // of the terminal, is the live status surface:
+    //   1. fl-info status header   (3 rows)
+    //   2. Loading progress strip  (1 row — pre-ready only, hidden when
+    //                               VM Service is connected)
+    //   3. Performance + Devices   (flex — takes the remaining rows)
+    //   4. Footer keybinds         (1 row)
+    let show_progress = !state.app_ready() && !state.progress_phases.is_empty();
+    let constraints: &[Constraint] = if show_progress {
+        &[
+            Constraint::Length(HEADER_HEIGHT),
+            Constraint::Length(1),
+            Constraint::Min(4),
+            Constraint::Length(1),
+        ]
+    } else {
+        &[
             Constraint::Length(HEADER_HEIGHT),
             Constraint::Min(4),
             Constraint::Length(1),
-        ])
+        ]
+    };
+    let layout = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints(constraints)
         .split(area);
     render_header(layout[0], buf, state, theme);
-    render_status_panels(layout[1], buf, state, theme);
-    render_footer(layout[2], buf, state, theme);
+    if show_progress {
+        render_progress_strip(layout[1], buf, state, theme);
+        render_status_panels(layout[2], buf, state, theme);
+        render_footer(layout[3], buf, state, theme);
+    } else {
+        render_status_panels(layout[1], buf, state, theme);
+        render_footer(layout[2], buf, state, theme);
+    }
+}
+
+/// Pre-ready loading strip: stepper of completed phases + the one
+/// currently active, plus an indeterminate animated bar that conveys
+/// "yes, still working" without faking a percentage. Renders into
+/// a single row right below the header.
+///
+/// Format on a wide terminal:
+///
+///   `[████░░░░░] ⏳ Installing and launching... · 0:08   ✓ Resolve [0.4s] · ✓ Build [4:18] · ⏳ Install [0:08]`
+///
+/// On narrow terminals the right-side stepper is dropped — current
+/// phase + indeterminate bar always survive.
+fn render_progress_strip(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
+    use ratatui::text::Span;
+    if area.width == 0 {
+        return;
+    }
+    let current = state.current_progress_phase();
+    let phase_label = current
+        .map(|p| p.message.as_str())
+        .unwrap_or("Waiting for next phase…");
+    let phase_elapsed = current.map(|p| p.started_at.elapsed()).unwrap_or_default();
+    let label = format!(" ⏳ {phase_label} · {} ", format_short(phase_elapsed));
+
+    // Indeterminate bar — fixed width, animated sweep.
+    const BAR_W: usize = 14;
+    let bar = indeterminate_bar(BAR_W, state.started_at.elapsed());
+
+    // Right side: compact phase stepper. We pack as many phases as fit
+    // into whatever width is left after the bar + label.
+    let stepper = render_phase_stepper(state);
+
+    let label_w = label.chars().count();
+    let bar_w = BAR_W + 2; // `[` + bar + `]`
+    let stepper_w = stepper.chars().count();
+    let total_w = label_w + bar_w + 1 + stepper_w; // 1 = gap
+    let bg = theme.bg;
+    let dim = theme.dim;
+    let accent = theme.accent;
+
+    let mut spans: Vec<Span<'static>> = Vec::with_capacity(4);
+    spans.push(Span::styled(
+        format!("[{bar}]"),
+        Style::default().fg(accent).bg(bg),
+    ));
+    spans.push(Span::styled(label, Style::default().fg(theme.fg).bg(bg)));
+    if total_w <= area.width as usize {
+        spans.push(Span::styled(
+            " ".repeat(area.width as usize - label_w - bar_w - stepper_w),
+            Style::default().bg(bg),
+        ));
+        spans.push(Span::styled(stepper, Style::default().fg(dim).bg(bg)));
+    } else {
+        // Drop the stepper, pad with bg so we don't leave glyphs behind.
+        let pad = (area.width as usize).saturating_sub(label_w + bar_w);
+        spans.push(Span::styled(" ".repeat(pad), Style::default().bg(bg)));
+    }
+    Paragraph::new(Line::from(spans)).render(area, buf);
+}
+
+/// A `BAR_W`-wide indeterminate bar with a 3-cell highlight that
+/// sweeps left-to-right and bounces off the edges. Uses `█` for the
+/// highlight and `░` for the rest.
+fn indeterminate_bar(width: usize, elapsed: std::time::Duration) -> String {
+    if width == 0 {
+        return String::new();
+    }
+    let cycle_ms = 1400u128;
+    let t = (elapsed.as_millis() % cycle_ms) as f32 / cycle_ms as f32;
+    // Triangular wave: 0 → 1 → 0
+    let phase = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
+    let head_w = 3usize;
+    let head_pos = (phase * (width.saturating_sub(head_w) as f32)).round() as usize;
+    let mut out = String::with_capacity(width);
+    for i in 0..width {
+        if i >= head_pos && i < head_pos + head_w {
+            out.push('█');
+        } else {
+            out.push('░');
+        }
+    }
+    out
+}
+
+/// Format a `Duration` in a compact, terminal-friendly way:
+/// `< 60s` → `12s`, `< 1h` → `4:18`, otherwise `1:02:31`.
+fn format_short(d: std::time::Duration) -> String {
+    let secs = d.as_secs();
+    if secs < 60 {
+        format!("{secs}s")
+    } else if secs < 3600 {
+        format!("{m}:{s:02}", m = secs / 60, s = secs % 60)
+    } else {
+        format!(
+            "{h}:{m:02}:{s:02}",
+            h = secs / 3600,
+            m = (secs % 3600) / 60,
+            s = secs % 60
+        )
+    }
+}
+
+/// Build the compact phase stepper string from `state.progress_phases`.
+/// Done phases get `✓ Title [elapsed]`, the active phase gets
+/// `⏳ Title [elapsed]`, separated by ` · `.
+fn render_phase_stepper(state: &AppState) -> String {
+    if state.progress_phases.is_empty() {
+        return String::new();
+    }
+    let mut parts: Vec<String> = Vec::with_capacity(state.progress_phases.len());
+    for phase in &state.progress_phases {
+        let title = friendly_phase_title(phase);
+        let elapsed = match phase.finished_at {
+            Some(end) => end.duration_since(phase.started_at),
+            None => phase.started_at.elapsed(),
+        };
+        let mark = if phase.finished_at.is_some() {
+            "✓"
+        } else {
+            "⏳"
+        };
+        parts.push(format!("{mark} {title} [{}]", format_short(elapsed)));
+    }
+    parts.join(" · ")
+}
+
+/// Strip trailing ellipses and shorten the most common Flutter
+/// phase messages to a few-letter title — keeps the stepper readable
+/// at every terminal width.
+fn friendly_phase_title(phase: &crate::app::ProgressPhase) -> String {
+    let m = phase.message.trim_end_matches('…').trim_end_matches('.').trim();
+    // Match against known startup phases first — saves columns and gives
+    // the user a recognisable label.
+    let lower = m.to_ascii_lowercase();
+    if lower.contains("xcode build") {
+        return "Build".to_string();
+    }
+    if lower.contains("installing and launching") {
+        return "Install".to_string();
+    }
+    if lower.contains("pod install") {
+        return "Pods".to_string();
+    }
+    if lower.contains("resolving dependencies") || lower.contains("running pub get") {
+        return "Resolve".to_string();
+    }
+    if lower.starts_with("performing hot reload") {
+        return "Hot reload".to_string();
+    }
+    if lower.starts_with("performing hot restart") {
+        return "Hot restart".to_string();
+    }
+    if lower.starts_with("compiling ") {
+        return "Compile".to_string();
+    }
+    if lower.contains("connecting to the vm service")
+        || lower.contains("waiting for connection from debug service")
+    {
+        return "VM".to_string();
+    }
+    // Fallback: keep the first 18 visible chars so the stepper stays
+    // narrow. The full message lives in scrollback for the curious.
+    m.chars().take(18).collect()
 }
 
 /// Performance + Devices panels in the lower portion of the viewport,
@@ -649,6 +830,142 @@ mod tests {
             !text.contains('✓'),
             "no checkmark while a device builds, got:\n{text}"
         );
+    }
+
+    // ── progress strip helpers ───────────────────────────────────────────
+
+    #[test]
+    fn format_short_under_a_minute() {
+        use std::time::Duration;
+        assert_eq!(format_short(Duration::from_secs(0)), "0s");
+        assert_eq!(format_short(Duration::from_secs(8)), "8s");
+        assert_eq!(format_short(Duration::from_secs(59)), "59s");
+    }
+
+    #[test]
+    fn format_short_minutes_then_hours() {
+        use std::time::Duration;
+        assert_eq!(format_short(Duration::from_secs(60)), "1:00");
+        assert_eq!(format_short(Duration::from_secs(4 * 60 + 18)), "4:18");
+        assert_eq!(format_short(Duration::from_secs(3600)), "1:00:00");
+        assert_eq!(format_short(Duration::from_secs(3661)), "1:01:01");
+    }
+
+    #[test]
+    fn indeterminate_bar_has_three_full_blocks() {
+        use std::time::Duration;
+        let s = indeterminate_bar(14, Duration::from_millis(0));
+        assert_eq!(s.chars().count(), 14);
+        let full = s.chars().filter(|c| *c == '█').count();
+        let dim = s.chars().filter(|c| *c == '░').count();
+        assert_eq!(full, 3, "exactly 3 head cells highlighted");
+        assert_eq!(dim, 11);
+    }
+
+    #[test]
+    fn indeterminate_bar_head_moves_with_time() {
+        use std::time::Duration;
+        let a = indeterminate_bar(14, Duration::from_millis(0));
+        let b = indeterminate_bar(14, Duration::from_millis(200));
+        assert_ne!(a, b, "the head should have moved");
+    }
+
+    fn make_phase(msg: &str) -> crate::app::ProgressPhase {
+        crate::app::ProgressPhase {
+            id: "1".into(),
+            progress_id: None,
+            message: msg.into(),
+            started_at: std::time::Instant::now(),
+            finished_at: None,
+        }
+    }
+
+    #[test]
+    fn friendly_phase_title_known_messages_get_short_labels() {
+        assert_eq!(
+            friendly_phase_title(&make_phase("Running Xcode build...")),
+            "Build"
+        );
+        assert_eq!(
+            friendly_phase_title(&make_phase("Installing and launching...")),
+            "Install"
+        );
+        assert_eq!(
+            friendly_phase_title(&make_phase("Running pod install...")),
+            "Pods"
+        );
+        assert_eq!(
+            friendly_phase_title(&make_phase("Resolving dependencies in `my_app`...")),
+            "Resolve"
+        );
+        assert_eq!(
+            friendly_phase_title(&make_phase("Performing hot reload...")),
+            "Hot reload"
+        );
+    }
+
+    #[test]
+    fn friendly_phase_title_unknown_message_is_truncated() {
+        let p = make_phase("Some quite long phase message that wouldn't fit");
+        let t = friendly_phase_title(&p);
+        assert!(t.chars().count() <= 18, "got: {t}");
+    }
+
+    #[test]
+    fn progress_strip_only_visible_when_pre_ready_and_has_phases() {
+        use fl_core::{AppEvent, FlutterEvent};
+        let mut state = AppState::new("a".into(), "d".into());
+        // No phases yet → strip stays hidden, dashboard layout unchanged.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
+        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text_before = dump_buffer(&buf);
+        assert!(
+            !text_before.contains("⏳ Running Xcode build"),
+            "no phase yet → strip hidden"
+        );
+        // Apply a Progress event with non-empty message → phase active.
+        state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+            id: "1".into(),
+            progress_id: None,
+            message: "Running Xcode build...".into(),
+            finished: false,
+        }));
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
+        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        let text_after = dump_buffer(&buf);
+        assert!(
+            text_after.contains("Running Xcode build"),
+            "active phase → strip visible:\n{text_after}"
+        );
+        assert!(
+            text_after.contains("Build"),
+            "stepper short-label visible:\n{text_after}"
+        );
+    }
+
+    #[test]
+    fn progress_phase_is_marked_finished_on_close_event() {
+        use fl_core::{AppEvent, FlutterEvent};
+        let mut state = AppState::new("a".into(), "d".into());
+        state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+            id: "7".into(),
+            progress_id: None,
+            message: "Running Xcode build...".into(),
+            finished: false,
+        }));
+        assert!(state.current_progress_phase().is_some());
+        state.apply(AppEvent::Flutter(FlutterEvent::Progress {
+            id: "7".into(),
+            progress_id: None,
+            message: "".into(),
+            finished: true,
+        }));
+        assert!(
+            state.current_progress_phase().is_none(),
+            "closer event flips finished_at"
+        );
+        assert_eq!(state.progress_phases.len(), 1);
+        assert!(state.progress_phases[0].finished_at.is_some());
     }
 
     #[test]

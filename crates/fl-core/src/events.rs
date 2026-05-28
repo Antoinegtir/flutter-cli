@@ -102,6 +102,11 @@ pub enum FlutterEvent {
     },
     Progress {
         id: String,
+        /// Optional category tag emitted by the Flutter daemon
+        /// (`devFS.update`, `hot.reload`, `hot.restart`, …). Lets the
+        /// UI group related events into a phase even when the message
+        /// text changes mid-phase. `None` when the daemon didn't tag it.
+        progress_id: Option<String>,
         message: String,
         finished: bool,
     },

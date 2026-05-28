@@ -164,6 +164,17 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                     .and_then(Value::as_str)
                     .unwrap_or("")
                     .to_string();
+                // The daemon's `progressId` is the phase tag we want to
+                // pivot on in the UI (`devFS.update`, `hot.reload`,
+                // `hot.restart`, …). It's missing on plenty of
+                // progress events (the ones with just a message) — keep
+                // it as Option<String> so consumers can fall back to
+                // the message text.
+                let progress_id = params
+                    .get("progressId")
+                    .and_then(Value::as_str)
+                    .filter(|s| !s.is_empty())
+                    .map(str::to_string);
                 let message = params
                     .get("message")
                     .and_then(Value::as_str)
@@ -175,6 +186,7 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                     .unwrap_or(false);
                 Some(FlutterEvent::Progress {
                     id,
+                    progress_id,
                     message,
                     finished,
                 })
