@@ -27,7 +27,7 @@ pub async fn run(shell: ShellKind) -> anyhow::Result<()> {
 
 /// POSIX-shell (bash + zsh) shim. We define a function named
 /// `flutter` that dispatches the first positional argument: matched
-/// subcommands go to `fl`, anything else (and the bare `flutter` call
+/// subcommands go to `flutter-cli`, anything else (and the bare `flutter` call
 /// with no args) goes to the real binary via `command flutter`, which
 /// bypasses the function we just defined so there's no infinite loop.
 fn render_posix() -> String {

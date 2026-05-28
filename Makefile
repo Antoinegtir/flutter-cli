@@ -2,7 +2,7 @@
 #
 # Run `make` or `make help` to list targets.
 
-CLI_CRATE := fl-cli
+CLI_CRATE := flutter-cli
 BIN       := flutter-cli
 NPM_DIR   := npm
 

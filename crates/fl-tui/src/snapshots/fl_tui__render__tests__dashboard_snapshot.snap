@@ -25,4 +25,4 @@ expression: dump
 │                                                          ││                                      │
 │                                                          ││                                      │
 └──────────────────────────────────────────────────────────┘└──────────────────────────────────────┘
- ⏳  building app…  [/] filter  [c] copy 📋   [q] quit
+ ⏳  building app…  [e] error ↗  [/] filter  [c] copy 📋   [q] quit

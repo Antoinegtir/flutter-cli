@@ -1,4 +1,4 @@
-//! `fl build <target> [--mode]` — wraps `flutter build <target> --machine`.
+//! `flutter-cli build <target> [--mode]` — wraps `flutter build <target> --machine`.
 
 use anyhow::{anyhow, Context};
 use fl_core::BuildMode;
@@ -53,7 +53,7 @@ pub async fn run(
         if !matches!(mode, BuildMode::Release) {
             args.push(&mode_flag);
         }
-        // User pass-through args (after `--` on the `fl build` line):
+        // User pass-through args (after `--` on the `flutter-cli build` line):
         // `--flavor`, `--target=lib/main_prod.dart`, `--obfuscate`, etc.
         for a in &extra_owned {
             args.push(a.as_str());
@@ -167,7 +167,7 @@ pub async fn run(
 
     let mut view = BuildView::new(target, mode);
     // Inline viewport so the user's shell history stays visible above
-    // the build dashboard — same UX as `fl run`. ~14 rows is enough for
+    // the build dashboard — same UX as `flutter-cli run`. ~14 rows is enough for
     // the build status (target, mode, progress, last-error) without
     // crowding the scrollback. If anything goes wrong while attaching
     // (raw mode unavailable, stdout not a TTY, …) we report it as an
@@ -176,7 +176,7 @@ pub async fn run(
     let mut runner = match TuiRunner::init_inline(14) {
         Ok(r) => r,
         Err(e) => {
-            eprintln!("fl build: could not attach inline TUI: {e:#}");
+            eprintln!("flutter-cli build: could not attach inline TUI: {e:#}");
             return Err(e);
         }
     };

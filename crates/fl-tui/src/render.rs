@@ -19,6 +19,7 @@ const FOOTER_BINDS: &[&str] = &[
     "[r] reload",
     "[R] restart",
     "[q] quit",
+    "[e] error ↗",
     "[c] copy 📋",
     "[/] filter",
     "[s] snap 📸",
@@ -35,16 +36,22 @@ const FOOTER_BINDS: &[&str] = &[
 // they're no-ops at that point — the user pressing them just spams
 // the log with "not ready" warnings.
 //
+// `e` (jump to error in IDE) IS surfaced here even though the app
+// isn't running: it's the moment the user needs it most, since most
+// pre-ready failures are Dart compilation errors with a file ref in
+// the log. Same reason `/` (filter) and `c` (copy) stay.
+//
 // The prefix (the "building" hint) shimmers; the suffix (the static
 // keys) is rendered with the normal dimmed footer style. Splitting
 // avoids running the shimmer animation over key labels, which would
 // look messy.
 const FOOTER_FULL_PRE_READY_SHIMMER: &str = " ⏳ building app… ";
-const FOOTER_FULL_PRE_READY_STATIC: &str = " [/] filter  [c] copy 📋  [q] quit ";
+const FOOTER_FULL_PRE_READY_STATIC: &str =
+    " [e] error ↗  [/] filter  [c] copy 📋  [q] quit ";
 const FOOTER_MEDIUM_PRE_READY_SHIMMER: &str = " ⏳ building… ";
-const FOOTER_MEDIUM_PRE_READY_STATIC: &str = " [q] quit ";
+const FOOTER_MEDIUM_PRE_READY_STATIC: &str = " [e] err  [q] quit ";
 const FOOTER_SHORT_PRE_READY_SHIMMER: &str = " ⏳ building ";
-const FOOTER_SHORT_PRE_READY_STATIC: &str = "· q quit ";
+const FOOTER_SHORT_PRE_READY_STATIC: &str = "· e err · q quit ";
 
 const MIN_WIDTH: u16 = 50;
 const MIN_HEIGHT: u16 = 8;

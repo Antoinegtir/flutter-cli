@@ -1,4 +1,4 @@
-//! Interactive device selector used by `fl run` when 2+ devices are detected.
+//! Interactive device selector used by `flutter-cli run` when 2+ devices are detected.
 
 use crate::theme::Theme;
 use crate::view::View;
@@ -107,7 +107,7 @@ impl View for DevicePickerView {
 
     fn render(&self, area: Rect, buf: &mut Buffer, theme: &Theme) {
         let block = Block::default()
-            .title(" fl run ── Select devices ")
+            .title(" flutter-cli run ── Select devices ")
             .borders(Borders::ALL)
             .border_style(Style::default().fg(theme.accent).bg(theme.bg))
             .style(theme.base());

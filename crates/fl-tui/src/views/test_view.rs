@@ -1,4 +1,4 @@
-//! View for `fl test`. Shows a live counter + lists of running / done
+//! View for `flutter-cli test`. Shows a live counter + lists of running / done
 //! tests + a scrollable failures pane. Survives test completion so the
 //! user can read failures before pressing `q`.
 
@@ -13,7 +13,7 @@ use ratatui::widgets::{Block, Borders, Paragraph, Widget};
 use std::time::{Duration, Instant};
 
 /// Transient feedback shown over the bottom of the screen — same idea
-/// as `fl run`'s banner system. Auto-expires after `duration`.
+/// as `flutter-cli run`'s banner system. Auto-expires after `duration`.
 #[derive(Debug, Clone, Copy)]
 pub enum TestBannerKind {
     Success,
@@ -409,7 +409,7 @@ fn render_header(area: Rect, buf: &mut Buffer, v: &TestView, theme: &Theme) {
     // Left: counters with coloured digits so the eye lands on the
     // important number (failures, if any).
     let mut spans = vec![Span::styled(
-        " fl test ── ".to_string(),
+        " flutter-cli test ── ".to_string(),
         Style::default()
             .fg(theme.accent)
             .bg(theme.bg)
@@ -531,7 +531,7 @@ fn render_live_panel(area: Rect, buf: &mut Buffer, v: &TestView, theme: &Theme) 
     }
 
     // Then the completed tests window — the scroll offset slides the
-    // window backward into history. Mirrors the logs panel in fl run.
+    // window backward into history. Mirrors the logs panel in flutter-cli run.
     let budget = (inner.height as usize).saturating_sub(lines.len());
     let n = v.recent_done.len();
     let off = v.tests_scroll.min(n.saturating_sub(budget));
@@ -685,7 +685,7 @@ fn render_footer(area: Rect, buf: &mut Buffer, v: &TestView, theme: &Theme) {
 
 /// Overlay a coloured one-line banner near the top of the view —
 /// matches `AppState`'s `render_banner` behaviour so the two TUIs
-/// feel consistent (copy in `fl run` and copy in `fl test` look the
+/// feel consistent (copy in `flutter-cli run` and copy in `flutter-cli test` look the
 /// same).
 fn render_banner(area: Rect, buf: &mut Buffer, banner: &TestBanner, theme: &Theme) {
     let bg = match banner.kind {

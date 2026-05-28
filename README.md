@@ -135,6 +135,7 @@ Keybindings while running:
 | `r` / `R` | hot reload / hot restart (all devices) |
 | `b` / `o` | flip theme (light/dark) / fake platform (iOS/Android) |
 | `p` / `P` | debug paint / performance overlay |
+| `e` | jump to error location in VS Code / Android Studio (or ⌘+click the underlined ref) |
 | `n` | toggle Network inspector |
 | `d` | open Flutter DevTools in your browser |
 | `s` | screenshot every device → `screenshots/<timestamp>/<device>.png` |
@@ -212,7 +213,7 @@ Self-healing: if `flutter-cli` ever disappears (uninstalled, PATH broken, …), 
 
 ```sh
 git clone https://github.com/Antoinegtir/flutter-cli && cd flutter-cli
-cargo install --path crates/fl-cli
+cargo install --path crates/flutter-cli
 echo 'eval "$(flutter-cli init zsh)"' >> ~/.zshrc   # bash / fish — substitute shell
 ```
 

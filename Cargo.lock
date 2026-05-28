@@ -710,29 +710,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "fl-cli"
-version = "0.4.6"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "crossterm 0.29.0",
- "directories",
- "fl-adb",
- "fl-core",
- "fl-flutter",
- "fl-ios",
- "fl-tui",
- "fl-vmservice",
- "futures-util",
- "serde_json",
- "tokio",
- "tracing",
- "tracing-appender",
- "tracing-subscriber",
-]
-
-[[package]]
 name = "fl-core"
 version = "0.4.6"
 dependencies = [
@@ -824,6 +801,29 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "spin",
+]
+
+[[package]]
+name = "flutter-cli"
+version = "0.4.6"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossterm 0.29.0",
+ "directories",
+ "fl-adb",
+ "fl-core",
+ "fl-flutter",
+ "fl-ios",
+ "fl-tui",
+ "fl-vmservice",
+ "futures-util",
+ "serde_json",
+ "tokio",
+ "tracing",
+ "tracing-appender",
+ "tracing-subscriber",
 ]
 
 [[package]]

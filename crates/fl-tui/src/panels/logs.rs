@@ -53,6 +53,22 @@ fn matches_filter(line: &LogLine, needle_lower: &str) -> bool {
     level_name(line.level).contains(needle_lower) || contains_ascii_ci(&line.message, needle_lower)
 }
 
+/// Render a single log line as a ratatui `Line`. Single span, no
+/// file-ref highlighting — see `runner.rs::log_style_for` for the
+/// level-based coloring that's actually used in the inline-viewport
+/// scrollback (the panels-based logs view kept here is currently
+/// dead code; we keep it minimal in case it comes back).
+fn render_log_line(l: &LogLine, theme: &Theme) -> Line<'static> {
+    let prefix = match l.level {
+        fl_core::LogLevel::Error => "ERROR ",
+        fl_core::LogLevel::Warn => "WARN  ",
+        fl_core::LogLevel::Info => "INFO  ",
+        fl_core::LogLevel::Debug => "DEBUG ",
+        fl_core::LogLevel::Trace => "TRACE ",
+    };
+    Line::styled(format!("{prefix}{}", l.message), theme.level(l.level))
+}
+
 pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) {
     // Pre-lowercase the filter ONCE. The hot path below would otherwise
     // do this per log per frame.
@@ -116,16 +132,7 @@ pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme
 
     let lines: Vec<Line> = window
         .iter()
-        .map(|l| {
-            let prefix = match l.level {
-                fl_core::LogLevel::Error => "ERROR ",
-                fl_core::LogLevel::Warn => "WARN  ",
-                fl_core::LogLevel::Info => "INFO  ",
-                fl_core::LogLevel::Debug => "DEBUG ",
-                fl_core::LogLevel::Trace => "TRACE ",
-            };
-            Line::styled(format!("{prefix}{}", l.message), theme.level(l.level))
-        })
+        .map(|l| render_log_line(l, theme))
         .collect();
 
     Paragraph::new(lines).style(theme.base()).render(inner, buf);

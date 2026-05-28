@@ -158,7 +158,7 @@ async fn main() -> anyhow::Result<()> {
                 // `--basic` skips the TUI test runner entirely and
                 // just exec's `flutter test [filters/paths…]` with
                 // inherited stdio. Mirrors what users get without
-                // `fl` installed.
+                // `flutter-cli` installed.
                 let mut args = vec!["test".to_string()];
                 if let Some(d) = device {
                     args.push("-d".into());

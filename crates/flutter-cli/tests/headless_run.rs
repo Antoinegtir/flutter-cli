@@ -1,4 +1,4 @@
-//! Drive the `fl` binary in headless mode against a faux flutter scenario.
+//! Drive the `flutter-cli` binary in headless mode against a faux flutter scenario.
 //!
 //! These tests exercise the binary end-to-end through `#!/bin/sh` fixture
 //! scripts that stand in for the real `flutter`, `adb` and `xcrun` tools,
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 fn workspace_root() -> PathBuf {
-    // CARGO_MANIFEST_DIR points to crates/fl-cli; up two levels = workspace root.
+    // CARGO_MANIFEST_DIR points to crates/flutter-cli; up two levels = workspace root.
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
@@ -196,7 +196,7 @@ fn headless_test_emits_test_events() {
     assert!(out.contains("AllDone"), "missing AllDone:\n{out}");
 }
 
-// `fl doctor` and `fl clean` are no longer handled by `fl` — they now
+// `flutter-cli doctor` and `flutter-cli clean` are no longer handled by `flutter-cli` — they now
 // pass through to the real `flutter` binary. The previous integration
 // tests asserted internal Section/Done events from our own TUIs; with
 // the pass-through model there's nothing fl-specific left to test.

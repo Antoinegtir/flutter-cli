@@ -1,4 +1,4 @@
-//! Clap definitions for the `fl` binary.
+//! Clap definitions for the `flutter-cli` binary.
 
 use clap::{Parser, Subcommand};
 use fl_core::BuildMode;
@@ -19,13 +19,13 @@ pub struct Cli {
 pub enum Cmd {
     /// List attached devices with status, IP, battery, OS version.
     Devices,
-    /// Run a Flutter app with the `fl` dashboard. Auto-pairs USB→WiFi.
+    /// Run a Flutter app with the `flutter-cli` dashboard. Auto-pairs USB→WiFi.
     ///
     /// Accepts native `flutter run`-style mode flags (`--release` /
     /// `--profile` / `--debug`). Anything else after a `--` separator
     /// is forwarded verbatim, so the user can pass `--flavor`,
-    /// `--dart-define=`, `--target`, etc. without `fl` having to teach
-    /// each one explicitly: `fl run --release -- --flavor prod --dart-define=API=https://…`.
+    /// `--dart-define=`, `--target`, etc. without `flutter-cli` having to teach
+    /// each one explicitly: `flutter-cli run --release -- --flavor prod --dart-define=API=https://…`.
     Run {
         #[arg(short, long)]
         project: Option<PathBuf>,
@@ -43,7 +43,7 @@ pub enum Cmd {
         no_tui: bool,
         /// Pure passthrough: exec the real `flutter run` with stdio
         /// inherited. Same output as if you had typed `flutter run`
-        /// without `fl` in your path. No TUI, no `--machine`, no
+        /// without `flutter-cli` in your path. No TUI, no `--machine`, no
         /// JSON parsing — just Flutter's vanilla logs.
         #[arg(long)]
         basic: bool,
@@ -57,7 +57,7 @@ pub enum Cmd {
         #[arg(long)]
         debug: bool,
         /// Pass-through args forwarded verbatim to `flutter run`.
-        /// Use a `--` separator: `fl run -- --flavor prod --dart-define=X=Y`.
+        /// Use a `--` separator: `flutter-cli run -- --flavor prod --dart-define=X=Y`.
         #[arg(last = true, allow_hyphen_values = true)]
         extra: Vec<String>,
     },
@@ -66,7 +66,7 @@ pub enum Cmd {
     /// `target` accepts any subcommand `flutter build` supports (apk,
     /// appbundle, ios, ipa, macos, web, aar, bundle, …). Omit it to
     /// fall through to `flutter build` and see Flutter's own subcommand
-    /// list. Same passthrough convention as `fl run`: `--release` /
+    /// list. Same passthrough convention as `flutter-cli run`: `--release` /
     /// `--profile` / `--debug` are recognized; anything else after a
     /// `--` separator is forwarded verbatim.
     Build {
@@ -92,16 +92,16 @@ pub enum Cmd {
     /// Supports the full surface of `flutter test`:
     ///   • Unit, widget, golden, integration & e2e tests.
     ///   • One or more file/dir paths positionally:
-    ///       `fl test test/widget_test.dart`
-    ///       `fl test integration_test/`
-    ///       `fl test test/login test/signup`
+    ///       `flutter-cli test test/widget_test.dart`
+    ///       `flutter-cli test integration_test/`
+    ///       `flutter-cli test test/login test/signup`
     ///   • Named filters: `--name` (regex), `--plain-name` (literal).
     ///   • Tag selection: `--tags`, `--exclude-tags` (repeatable).
     ///   • Goldens: `--update-goldens` to refresh failing golden files.
     ///   • Coverage: `--coverage` writes `coverage/lcov.info`.
     ///   • Tunings: `--reporter`, `--concurrency`.
     ///   • Anything else: pass after `--`, e.g.
-    ///       `fl test -- --start-paused --total-shards 4`.
+    ///       `flutter-cli test -- --start-paused --total-shards 4`.
     Test {
         #[arg(short, long)]
         project: Option<PathBuf>,
@@ -128,7 +128,7 @@ pub enum Cmd {
         #[arg(long)]
         update_goldens: bool,
         /// Shorthand: run only the golden test suite living under
-        /// `test/golden/`. Equivalent to `fl test test/golden/` but
+        /// `test/golden/`. Equivalent to `flutter-cli test test/golden/` but
         /// pairs naturally with `--update-goldens`. Ignored when one
         /// or more explicit `paths` are given.
         #[arg(long)]
@@ -148,20 +148,20 @@ pub enum Cmd {
         /// omitted, matching `flutter test`'s default behaviour.
         paths: Vec<String>,
         /// Pass-through args forwarded verbatim to `flutter test`.
-        /// Use a `--` separator: `fl test -- --start-paused --shard-index 0`.
+        /// Use a `--` separator: `flutter-cli test -- --start-paused --shard-index 0`.
         #[arg(last = true, allow_hyphen_values = true)]
         extra: Vec<String>,
     },
     /// Emit a shell shim that hijacks `flutter` so `flutter run`,
     /// `flutter test`, `flutter build`, `flutter devices` flow through
-    /// `fl` automatically (with the TUI), while every other
+    /// `flutter-cli` automatically (with the TUI), while every other
     /// `flutter <cmd>` keeps calling the real `flutter` binary.
     ///
     /// Usage (one-shot, in `~/.zshrc` / `~/.bashrc` / `~/.config/fish/config.fish`):
     ///
     ///     eval "$(fl init zsh)"     # or bash / fish
     ///
-    /// After that, `flutter run` opens the `fl` dashboard directly —
+    /// After that, `flutter run` opens the `flutter-cli` dashboard directly —
     /// IDEs that call the `flutter` binary still bypass the shim and
     /// get vanilla behaviour, which is what you want.
     Init {
@@ -169,7 +169,7 @@ pub enum Cmd {
         shell: ShellKind,
     },
     /// Forward any other subcommand verbatim to `flutter` with stdio
-    /// inherited. Lets `fl doctor`, `fl clean`, `fl analyze`, etc. work
+    /// inherited. Lets `flutter-cli doctor`, `flutter-cli clean`, `fl analyze`, etc. work
     /// out of the box without us re-implementing each Flutter command
     /// as a custom TUI. The first element of the Vec is the subcommand
     /// itself, the rest are its args.
@@ -341,7 +341,7 @@ mod tests {
 
     #[test]
     fn parses_build_without_target_to_passthrough() {
-        // `fl build` alone should leave target=None so main can fall
+        // `flutter-cli build` alone should leave target=None so main can fall
         // through to plain `flutter build` (which prints the subcommand
         // list). No clap error, no required-arg failure.
         let c = Cli::parse_from(["fl", "build"]);

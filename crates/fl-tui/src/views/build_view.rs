@@ -1,4 +1,4 @@
-//! View for `fl build <target>` — phase list + final binary report.
+//! View for `flutter-cli build <target>` — phase list + final binary report.
 
 use crate::theme::Theme;
 use crate::view::View;
@@ -166,7 +166,7 @@ impl View for BuildView {
 
         // Header
         let header_text = format!(
-            " fl build ── {} · {} · {:>4}.{}s ",
+            " flutter-cli build ── {} · {} · {:>4}.{}s ",
             self.target,
             mode_label(self.mode),
             self.elapsed_ms / 1000,

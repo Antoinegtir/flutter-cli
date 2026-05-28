@@ -1,4 +1,4 @@
-//! Multi-device runtime for `fl run`.
+//! Multi-device runtime for `flutter-cli run`.
 //!
 //! Owns N parallel `DeviceSession`s, each backed by its own `FlutterDaemon` +
 //! `VmServiceClient` + `ReconnectManager`. Broadcasts keys to every session
@@ -160,7 +160,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         serial_to_run.clone()
     };
 
-    // Reap orphan `iproxy` processes left over from previous `fl run`
+    // Reap orphan `iproxy` processes left over from previous `flutter-cli run`
     // sessions that exited abruptly (USB unplug → daemon died without
     // cleanup). They accumulate at PPID=1 and eventually wedge usbmuxd:
     // 30+ of them was enough to make subsequent `flutter` spawns return
@@ -183,7 +183,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
         extra.push("--device-connection");
         extra.push("attached");
     }
-    // User-supplied pass-through args (after `--` on the `fl run`
+    // User-supplied pass-through args (after `--` on the `flutter-cli run`
     // command line). Appended LAST so explicit user choices win over
     // any defaults we added above.
     for a in &extra_user_args {
@@ -1041,7 +1041,7 @@ pub async fn broadcast_key(
                         level: LogLevel::Warn,
                         message: format!(
                             "[{short}] hot restart unavailable after USB unplug — \
-                         use `r` for hot reload or relaunch with `fl run`"
+                         use `r` for hot reload or relaunch with `flutter-cli run`"
                         ),
                     }))
                     .await
@@ -1621,7 +1621,7 @@ pub async fn run_multi(
     let runner = Arc::new(TokioRunner);
 
     // Startup sweep: kill any leftover `iproxy` zombies from a
-    // previous `fl run` that exited badly. Without this, after a few
+    // previous `flutter-cli run` that exited badly. Without this, after a few
     // bad sessions, macOS's usbmuxd starts refusing new iproxy spawns
     // and the next `flutter run` fails with EPERM. We don't know the
     // UDID yet here, so we use a broader pattern (any libusbmuxd
@@ -1848,7 +1848,7 @@ pub async fn run_multi(
             .to_string();
         let mut state = AppState::new(app_name, mode_label(mode).into());
         eprintln!(
-            "fl run --no-tui · {} session{} · Ctrl-C to quit",
+            "flutter-cli run --no-tui · {} session{} · Ctrl-C to quit",
             sessions.len(),
             if sessions.len() == 1 { "" } else { "s" }
         );

@@ -25,7 +25,7 @@ use tokio::sync::mpsc::{Receiver, Sender};
 #[derive(Clone, Copy)]
 enum ViewportMode {
     /// Alternate screen, swallows the whole terminal — used by views
-    /// like the device picker and `fl test` where we want exclusive
+    /// like the device picker and `flutter-cli test` where we want exclusive
     /// real estate.
     Fullscreen,
     /// Inline viewport pinned to the bottom of the user's terminal.
@@ -136,7 +136,7 @@ fn welcome_banner_lines(width: u16, theme: &Theme, versions: Option<(&str, &str)
     // Top border with embedded title.
     //   ╭─ flutter-cli v0.1.0 ────…────╮
     // Version is resolved at compile time from fl-tui's Cargo.toml,
-    // which we bump in lockstep with fl-cli. Avoids a stale hardcoded
+    // which we bump in lockstep with flutter-cli. Avoids a stale hardcoded
     // string drifting from the actual release.
     // When the SDK versions are known, surface them right after the CLI
     // name in the title bar: ` flutter-cli v0.3.0 · Flutter 3.41.9 · Dart 3.11.5 `.
@@ -198,10 +198,19 @@ fn welcome_banner_lines(width: u16, theme: &Theme, versions: Option<(&str, &str)
 /// filter-driven full repaint (`repaint_scrollback`) so the two
 /// stay visually consistent.
 ///
-/// Special-case: INFO lines whose message starts with the "✓" tick
-/// or the rocket emoji are upgraded to the theme's success colour,
-/// so build-complete / app-launched announcements pop against the
-/// stream of regular debug noise.
+/// Special-cases:
+/// * INFO lines whose message starts with the "✓" tick or the rocket
+///   emoji are upgraded to the theme's success colour, so
+///   build-complete / app-launched announcements pop against the
+///   stream of regular debug noise.
+/// * DEBUG lines that contain a Dart compiler error / warning are
+///   upgraded to ERROR / WARN. Compilation errors from the
+///   iOS/Android subprocess (Xcode, Gradle) flow through stdout/stderr
+///   and the daemon classifies them as DEBUG — but they're every bit
+///   as critical as the ERROR-tagged ones from the live VM Service
+///   (which the user sees during hot reload). Without this upgrade
+///   the user's startup errors blend into the dim noise and they have
+///   to scan ~40 grey lines to find why their app didn't start.
 fn log_style_for(
     level: fl_core::LogLevel,
     message: &str,
@@ -215,7 +224,88 @@ fn log_style_for(
     {
         return ("INFO  ", theme.success);
     }
+    if matches!(level, fl_core::LogLevel::Debug) {
+        match dart_compiler_diagnostic_kind(message) {
+            Some(DartDiag::Error) => return ("ERROR ", theme.error),
+            Some(DartDiag::Warning) => return ("WARN  ", theme.warn),
+            None => {}
+        }
+    }
     log_style(level, theme)
+}
+
+#[derive(Copy, Clone)]
+enum DartDiag {
+    Error,
+    Warning,
+}
+
+/// Detect lines that LOOK like Dart compiler output even though the
+/// daemon flagged them as DEBUG. Matches two shapes:
+///
+///   1. The header line: `<...>.dart:LINE:COL: Error:` / `Warning:`.
+///      That's the canonical format `kernel_compiler` and the
+///      front-end CFE emit, plus the iOS/Android subprocess wrappers
+///      pass them through verbatim.
+///
+///   2. The caret-pointer context line that follows the offending
+///      source code, e.g. `        ^^^^^^^^^`. Without this the
+///      error header would pop in red while its visual underline
+///      below stayed dim — confusing.
+///
+/// The "suggestion" line ("Try adding ...") and the offending source
+/// line in between are NOT promoted on purpose: they're plain prose /
+/// code we'd risk false-positive-matching on, and the header alone
+/// is loud enough to pull the user's eye.
+fn dart_compiler_diagnostic_kind(message: &str) -> Option<DartDiag> {
+    let trimmed = message.trim_start();
+
+    // Caret-pointer line — when the entire trimmed body is `^`s (with
+    // optional trailing space), it's the underline of a previous Dart
+    // error. We can't know whether the original was an error or
+    // warning without state, so always promote to ERROR — overshooting
+    // to red is less bad than leaving it dim.
+    if !trimmed.is_empty()
+        && trimmed
+            .trim_end()
+            .chars()
+            .all(|c| c == '^')
+    {
+        return Some(DartDiag::Error);
+    }
+
+    // Header line: must contain `.dart:` followed by `LINE:COL:` and
+    // then either ` Error:` or ` Warning:`. We do a hand-rolled scan
+    // instead of a regex to avoid pulling a regex crate just for this.
+    let dart_pos = message.find(".dart:")?;
+    let after = &message[dart_pos + ".dart:".len()..];
+    let bytes = after.as_bytes();
+    // LINE
+    let mut i = 0;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == 0 || i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    i += 1;
+    // COL
+    let col_start = i;
+    while i < bytes.len() && bytes[i].is_ascii_digit() {
+        i += 1;
+    }
+    if i == col_start || i >= bytes.len() || bytes[i] != b':' {
+        return None;
+    }
+    i += 1;
+    let rest = &after[i..];
+    if rest.contains(" Error:") || rest.contains(" error:") {
+        Some(DartDiag::Error)
+    } else if rest.contains(" Warning:") || rest.contains(" warning:") {
+        Some(DartDiag::Warning)
+    } else {
+        None
+    }
 }
 
 fn log_style(level: fl_core::LogLevel, theme: &Theme) -> (&'static str, ratatui::style::Color) {
@@ -355,13 +445,13 @@ impl TuiRunner {
     /// session that the user rarely resizes mid-run.
     ///
     /// Default: no welcome banner. Used by transient inline UIs like
-    /// the device picker and `fl test` — the banner should only appear
-    /// for the main `fl run` session.
+    /// the device picker and `flutter-cli test` — the banner should only appear
+    /// for the main `flutter-cli run` session.
     pub fn init_inline(height: u16) -> anyhow::Result<Self> {
         Self::init_inline_with_options(height, false, None)
     }
 
-    /// Inline TUI for `fl run`: prints the bordered welcome banner
+    /// Inline TUI for `flutter-cli run`: prints the bordered welcome banner
     /// into the scrollback immediately above the viewport at startup.
     ///
     /// `versions` is the resolved SDK's `(flutter, dart)` version pair,
@@ -422,9 +512,9 @@ impl TuiRunner {
         // narrow to fit BANNER_WIDTH or (b) there aren't enough rows
         // above the viewport to fit all banner lines. Half a banner
         // would look worse than no banner.
-        // The welcome banner is opt-in: only `fl run` requests it via
+        // The welcome banner is opt-in: only `flutter-cli run` requests it via
         // `init_inline_with_banner`. Transient UIs (device picker,
-        // `fl test`) call the plain `init_inline` and pass false.
+        // `flutter-cli test`) call the plain `init_inline` and pass false.
         let banner = welcome_banner_lines(
             cols,
             &theme,
@@ -1086,6 +1176,88 @@ mod tests {
             joined.contains("[n] network"),
             "tips should mention the [n] network inspector:\n{joined}"
         );
+    }
+
+    // ── dart_compiler_diagnostic_kind ────────────────────────────────────
+
+    #[test]
+    fn dart_diag_header_error_is_detected() {
+        let m = "lib/main.dart:178:26: Error: Expected '(' after this.";
+        assert!(matches!(
+            dart_compiler_diagnostic_kind(m),
+            Some(DartDiag::Error)
+        ));
+    }
+
+    #[test]
+    fn dart_diag_header_warning_is_detected() {
+        let m = "lib/foo.dart:10:5: Warning: Unused import.";
+        assert!(matches!(
+            dart_compiler_diagnostic_kind(m),
+            Some(DartDiag::Warning)
+        ));
+    }
+
+    #[test]
+    fn dart_diag_caret_line_is_promoted_to_error() {
+        assert!(matches!(
+            dart_compiler_diagnostic_kind("        ^^^^^^^^"),
+            Some(DartDiag::Error)
+        ));
+        assert!(matches!(
+            dart_compiler_diagnostic_kind("^^^"),
+            Some(DartDiag::Error)
+        ));
+    }
+
+    #[test]
+    fn dart_diag_ignores_prose_mentioning_dart_or_error() {
+        // No `.dart:LINE:COL: Error:` pattern → not a Dart diagnostic.
+        assert!(dart_compiler_diagnostic_kind("Loading main.dart and friends").is_none());
+        assert!(dart_compiler_diagnostic_kind("Error: failed to connect").is_none());
+        assert!(dart_compiler_diagnostic_kind("debug print: error count = 3").is_none());
+    }
+
+    #[test]
+    fn dart_diag_ignores_source_code_lines() {
+        // The line of code that the error points at — no `.dart:` ref.
+        assert!(dart_compiler_diagnostic_kind("    AppLocalizations.delegate,").is_none());
+        assert!(dart_compiler_diagnostic_kind("    GlobalMaterialLocalizations.delegate,").is_none());
+    }
+
+    #[test]
+    fn dart_diag_ignores_blank_lines() {
+        assert!(dart_compiler_diagnostic_kind("").is_none());
+        assert!(dart_compiler_diagnostic_kind("   ").is_none());
+    }
+
+    #[test]
+    fn dart_diag_handles_package_prefixed_paths() {
+        let m = "package:myapp/lib/src/foo.dart:42:13: Error: undefined name 'bar'.";
+        assert!(matches!(
+            dart_compiler_diagnostic_kind(m),
+            Some(DartDiag::Error)
+        ));
+    }
+
+    #[test]
+    fn log_style_for_promotes_debug_dart_error_to_red() {
+        let (prefix, _color) = log_style_for(
+            fl_core::LogLevel::Debug,
+            "lib/main.dart:178:26: Error: Expected '(' after this.",
+            &Theme::TOKYO_NIGHT,
+        );
+        assert_eq!(prefix, "ERROR ", "debug-tagged dart error should be promoted");
+    }
+
+    #[test]
+    fn log_style_for_leaves_normal_debug_dim() {
+        let (prefix, _color) = log_style_for(
+            fl_core::LogLevel::Debug,
+            "Hot reload performed in 142ms",
+            &Theme::TOKYO_NIGHT,
+        );
+        assert_eq!(prefix, "DEBUG ", "ordinary debug should remain DEBUG");
     }
 
     #[test]

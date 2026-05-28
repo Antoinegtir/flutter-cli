@@ -1,5 +1,5 @@
 //! Pass-through to the real `flutter` binary for any subcommand that
-//! `fl` doesn't claim itself. Inherits stdio so output (including
+//! `flutter-cli` doesn't claim itself. Inherits stdio so output (including
 //! progress bars / TTY-detected coloured output) flows through as if
 //! the user had typed `flutter` directly. Exits with the same code as
 //! the child process.

@@ -6,7 +6,8 @@
 #      present, so it's safe to run twice).
 #   2. Removes the `flutter-cli` binary from every known install
 #      location (~/.local/bin, ~/.cargo/bin, /usr/local/bin, $BIN_DIR)
-#      and `cargo uninstall fl-cli` for legacy build-from-source installs.
+#      plus `cargo uninstall flutter-cli` (and the legacy `fl-cli`) for
+#      build-from-source installs.
 #
 # Usage:
 #   ./uninstall.sh              # remove shim + binary
@@ -98,13 +99,21 @@ else
       removed=$((removed + 1))
     fi
   done
-  # Legacy: tidy cargo's bookkeeping for users who originally did a
-  # `cargo install --path crates/fl-cli`, so `cargo install --list`
-  # no longer claims fl-cli is installed.
-  if command -v cargo >/dev/null && cargo install --list 2>/dev/null | grep -q '^fl-cli '; then
-    cargo uninstall fl-cli >/dev/null 2>&1 || true
-    ok "Cleaned cargo's record of fl-cli (legacy build-from-source install)"
-    removed=$((removed + 1))
+  # Tidy cargo's bookkeeping for users who built from source — both the
+  # current crate name (`flutter-cli`) and the previous one (`fl-cli`,
+  # renamed in 0.4.7). After this, `cargo install --list` no longer
+  # claims either is installed.
+  if command -v cargo >/dev/null; then
+    if cargo install --list 2>/dev/null | grep -q '^flutter-cli '; then
+      cargo uninstall flutter-cli >/dev/null 2>&1 || true
+      ok "Cleaned cargo's record of flutter-cli (build-from-source install)"
+      removed=$((removed + 1))
+    fi
+    if cargo install --list 2>/dev/null | grep -q '^fl-cli '; then
+      cargo uninstall fl-cli >/dev/null 2>&1 || true
+      ok "Cleaned cargo's record of fl-cli (legacy build-from-source install)"
+      removed=$((removed + 1))
+    fi
   fi
   if [ "$removed" -eq 0 ]; then
     warn "flutter-cli binary not found in any known location — nothing to remove"

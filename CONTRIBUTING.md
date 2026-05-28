@@ -79,13 +79,13 @@ crates/
   fl-flutter/       # Flutter daemon parser + spawn
   fl-vmservice/     # Dart VM service WebSocket client
   fl-tui/           # ratatui dashboard, views, panels
-  fl-cli/           # Binary entry point (clap CLI, init shim)
+  flutter-cli/      # Binary entry point (clap CLI, init shim)
 .github/workflows/  # CI (lint + matrix test) and tag-driven release
 ```
 
 When fixing a bug, prefer adding a test in the closest crate (parser
 tests in `fl-flutter/src/parse.rs`, daemon tests in `fl-flutter/src/daemon.rs`,
-TUI render tests in `fl-tui/`, integration tests in `crates/fl-cli/tests/`).
+TUI render tests in `fl-tui/`, integration tests in `crates/flutter-cli/tests/`).
 
 ## Code style
 

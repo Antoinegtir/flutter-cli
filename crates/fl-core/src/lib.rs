@@ -1,4 +1,4 @@
-//! Shared types for the `fl` CLI.
+//! Shared types for the `flutter-cli` CLI.
 
 pub mod config;
 pub mod events;

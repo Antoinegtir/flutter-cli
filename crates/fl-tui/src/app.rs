@@ -151,6 +151,13 @@ pub struct AppState {
     /// it without making `render` take `&mut`.
     pub network_viewport_height: std::sync::atomic::AtomicUsize,
     pub quitting: bool,
+    /// Absolute path of the Flutter project root (= cwd at startup).
+    /// Used by the `e` keybind to turn a relative `lib/foo.dart` path into
+    /// the absolute path the IDE needs.
+    pub project_root: std::path::PathBuf,
+    /// Lazily-detected IDE. `None` = not yet probed; `Some(None)` = probed
+    /// but nothing found; `Some(Some(kind))` = found.
+    pub ide_cache: Option<Option<crate::ide::IdeKind>>,
 }
 
 /// Single HTTP request snapshot, captured by polling
@@ -234,11 +241,13 @@ impl AppState {
             network_scroll_offset: 0,
             network_viewport_height: std::sync::atomic::AtomicUsize::new(10),
             quitting: false,
+            project_root: std::env::current_dir().unwrap_or_default(),
+            ide_cache: None,
         }
     }
 
     /// Clone-able handle to the debug-paint flag, so the multi-device key
-    /// dispatcher in fl-cli can read the same value the TUI mutates.
+    /// dispatcher in flutter-cli can read the same value the TUI mutates.
     pub fn debug_paint_handle(&self) -> std::sync::Arc<std::sync::atomic::AtomicBool> {
         self.debug_paint_on.clone()
     }
@@ -254,7 +263,7 @@ impl AppState {
     }
 
     /// Clone-able handle to the brightness state, so the multi-device key
-    /// dispatcher in fl-cli can read the same value the TUI displays.
+    /// dispatcher in flutter-cli can read the same value the TUI displays.
     pub fn brightness_handle(&self) -> std::sync::Arc<std::sync::atomic::AtomicU8> {
         self.brightness_state.clone()
     }
@@ -295,7 +304,7 @@ impl AppState {
                 {
                     // "Discovered" means adb / devicectl sees the
                     // device physically attached — NOT that the
-                    // Flutter app has started on it. Only fl-cli's
+                    // Flutter app has started on it. Only flutter-cli's
                     // `AppStarted` handler in multi.rs sends
                     // `SessionState::Ready`, which is the real
                     // signal we want. Leaving state alone here
@@ -579,6 +588,35 @@ impl AppState {
         self.logs.len().saturating_sub(self.log_viewport_lines())
     }
 
+    /// Find the most-recent user-space Dart file reference in the log ring
+    /// and open it in the detected IDE. Returns a short status string for
+    /// the banner.
+    pub fn open_in_ide(&mut self) -> String {
+        // Lazy IDE detection — probe once, cache the result.
+        let ide = match self.ide_cache {
+            Some(cached) => cached,
+            None => {
+                let detected = crate::ide::detect();
+                self.ide_cache = Some(detected);
+                detected
+            }
+        };
+
+        let Some(ide_kind) = ide else {
+            return "No IDE detected — open VS Code or Android Studio first".to_string();
+        };
+
+        // Scan from newest (back of deque) to oldest looking for a file ref.
+        let file_ref = self.logs.iter().rev().find_map(|l| {
+            crate::ide::extract_file_ref(&l.message)
+        });
+
+        match file_ref {
+            None => "No Dart file reference found in logs".to_string(),
+            Some(r) => crate::ide::open(ide_kind, &self.project_root, &r),
+        }
+    }
+
     pub fn show_banner(&mut self, kind: BannerKind, message: &str) {
         self.banner = Some(Banner {
             kind,
@@ -739,6 +777,22 @@ impl AppState {
                     "Perf overlay: OFF"
                 };
                 self.show_banner(BannerKind::Info, label);
+            }
+            fl_core::KeyEvent::Char('e') => {
+                // Open the first user-space Dart file reference found in
+                // the visible log window in the detected IDE (VS Code or
+                // Android Studio). Scans from newest to oldest so the most
+                // recent error is always the jump target.
+                let msg = self.open_in_ide();
+                let kind = if msg.contains("VS Code")
+                    || msg.contains("Android Studio")
+                    || msg.contains("Opened")
+                {
+                    BannerKind::Success
+                } else {
+                    BannerKind::Warn
+                };
+                self.show_banner(kind, &msg);
             }
             fl_core::KeyEvent::Char('n') => {
                 // Toggle the left dashboard panel between Performance
@@ -1052,7 +1106,7 @@ mod tests {
         // Discovered means the device is physically connected — it
         // does NOT mean the Flutter app has started on it. The
         // session state must NOT be promoted to Ready by a
-        // Discovered event; only `AppStarted` (which fl-cli
+        // Discovered event; only `AppStarted` (which flutter-cli
         // translates into `SessionState::Ready`) should do that.
         // Metadata fields (display_name, IP, platform, connection)
         // are however allowed to update freely.

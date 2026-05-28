@@ -1,6 +1,7 @@
-//! Terminal UI for the `fl` CLI.
+//! Terminal UI for the `flutter-cli` CLI.
 
 pub mod app;
+pub mod ide;
 pub mod panels;
 pub mod render;
 pub mod runner;

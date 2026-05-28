@@ -1,4 +1,4 @@
-//! `fl test` — wraps `flutter test --machine` with a live TUI that
+//! `flutter-cli test` — wraps `flutter test --machine` with a live TUI that
 //! survives test completion and supports re-running with `r`.
 
 use anyhow::{anyhow, Context};
@@ -13,7 +13,7 @@ use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 
-/// All the `fl test` options bundled up. Threaded through to the
+/// All the `flutter-cli test` options bundled up. Threaded through to the
 /// flutter spawner where each field is translated into the matching
 /// `flutter test` CLI flag.
 pub struct Options {
@@ -69,21 +69,21 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
     if !project.join("pubspec.yaml").exists() {
         return Err(anyhow!("no pubspec.yaml in {}", project.display()));
     }
-    // `--golden` is shorthand for `fl test test/golden/`. Resolve it
+    // `--golden` is shorthand for `flutter-cli test test/golden/`. Resolve it
     // before any path validation so the "needs `test/`" check below
     // can be skipped when goldens live elsewhere isn't a concern.
     let mut opts = opts;
     if opts.golden && opts.paths.is_empty() {
         opts.paths.push("test/golden/".into());
     }
-    // We used to require `test/` to exist, but `fl test integration_test/`
+    // We used to require `test/` to exist, but `flutter-cli test integration_test/`
     // (or any custom path the user explicitly types) is perfectly valid
     // for a project that only ships integration tests. Only enforce the
     // default-`test/`-must-exist rule when no paths were given.
     if opts.paths.is_empty() && !project.join("test").is_dir() {
         return Err(anyhow!(
             "no `test/` directory in {} — pass an explicit path \
-             (e.g. `fl test integration_test/`) if your tests live elsewhere",
+             (e.g. `flutter-cli test integration_test/`) if your tests live elsewhere",
             project.display()
         ));
     }
@@ -99,7 +99,7 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
     // device, `flutter test` will either auto-pick (one device) or
     // prompt interactively (multiple devices). Our stdin is detached
     // for terminal hygiene, so the interactive prompt deadlocks — we
-    // pre-resolve a device here using the same picker as `fl run`.
+    // pre-resolve a device here using the same picker as `flutter-cli run`.
     if opts.device.is_none() && paths_need_device(&opts.paths) {
         if let Some(serial) = pick_device_for_integration().await? {
             opts.device = Some(serial);
@@ -355,8 +355,8 @@ async fn drain_headless(mut rx: mpsc::Receiver<fl_core::TestEvent>) -> anyhow::R
 /// `-d <id>`, unlike unit/widget tests which run on the host VM.
 ///
 /// We treat anything under (or named) `integration_test` as needing a
-/// device. That covers `fl test integration_test/`,
-/// `fl test integration_test/login_test.dart`, and the convention
+/// device. That covers `flutter-cli test integration_test/`,
+/// `flutter-cli test integration_test/login_test.dart`, and the convention
 /// most Flutter projects follow.
 fn paths_need_device(paths: &[String]) -> bool {
     paths.iter().any(|p| {
@@ -367,7 +367,7 @@ fn paths_need_device(paths: &[String]) -> bool {
 
 /// Enumerate connected devices (Android via `adb`, iOS via
 /// `xcrun devicectl`, macOS desktop) and, if there are multiple, show
-/// the same picker as `fl run`. Returns the chosen serial, or `None`
+/// the same picker as `flutter-cli run`. Returns the chosen serial, or `None`
 /// when no devices are connected at all (we let flutter print its
 /// own "no devices" error in that case).
 async fn pick_device_for_integration() -> anyhow::Result<Option<String>> {
@@ -391,7 +391,7 @@ async fn pick_device_for_integration() -> anyhow::Result<Option<String>> {
         1 => Ok(Some(devices[0].serial.clone())),
         _ => {
             let picked = crate::multi::run_picker(&devices).await?;
-            // The picker returns a Vec because the `fl run` flow
+            // The picker returns a Vec because the `flutter-cli run` flow
             // supports multiple devices in parallel. For integration
             // tests we just take the first selected one — flutter
             // test only drives a single device per invocation.

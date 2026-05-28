@@ -1,4 +1,4 @@
-//! `fl run` — delegates to multi::run_multi for the actual orchestration.
+//! `flutter-cli run` — delegates to multi::run_multi for the actual orchestration.
 
 use fl_core::BuildMode;
 use std::path::PathBuf;

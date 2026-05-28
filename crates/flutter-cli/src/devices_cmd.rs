@@ -1,4 +1,4 @@
-//! `fl devices` — list attached devices using fl-adb + fl-ios.
+//! `flutter-cli devices` — list attached devices using fl-adb + fl-ios.
 
 use fl_adb::{parse_devices_l, CommandRunner, TokioRunner};
 use fl_core::{ConnectionKind, Device, DeviceState};
@@ -13,7 +13,7 @@ pub async fn run() -> anyhow::Result<()> {
         }
     }
     // Apple device discovery uses `xcrun`, which is macOS-only — gate
-    // it out on Linux/Windows to avoid two ENOENT spawns per `fl devices`
+    // it out on Linux/Windows to avoid two ENOENT spawns per `flutter-cli devices`
     // invocation. `cfg!` is const-folded so the branch is dropped at
     // compile time on non-macOS targets.
     if cfg!(target_os = "macos") {
@@ -94,7 +94,7 @@ fn print_table(devices: &[Device]) {
             platform_raw.clone()
         };
         // Prefix with the same emoji used in the TUI panels so the user
-        // gets visual parity between `fl devices` and the running dashboard.
+        // gets visual parity between `flutter-cli devices` and the running dashboard.
         let plat_glyph = fl_tui::panels::devices::platform_icon(&platform_raw);
         // Emoji glyphs count as 1 char but render at 2 cols, so the emoji
         // branch uses a 7-char label pad (1+1+7 = 9 chars / 10 display
