@@ -697,16 +697,47 @@ impl TuiRunner {
     /// summary, banner triggers, etc.) still sees it.
     fn handle_event(&mut self, state: &mut AppState, ev: AppEvent, theme: &Theme) {
         if matches!(self.mode, ViewportMode::Inline) {
-            if let AppEvent::Flutter(fl_core::FlutterEvent::Log { level, message }) = &ev {
-                // Apply the active log filter, if any. A non-matching
-                // line is still recorded in state.logs (so it's
-                // visible again the moment the user clears the
-                // filter), it just doesn't get printed to the
-                // terminal scrollback.
-                if log_matches_filter(state.log_filter.as_deref(), *level, message) {
-                    let (prefix, color) = log_style_for(*level, message, theme);
-                    let _ = self.print_above_viewport(prefix, message, color);
+            match &ev {
+                AppEvent::Flutter(fl_core::FlutterEvent::Log { level, message }) => {
+                    // Apply the active log filter, if any. A non-matching
+                    // line is still recorded in state.logs (so it's
+                    // visible again the moment the user clears the
+                    // filter), it just doesn't get printed to the
+                    // terminal scrollback.
+                    if log_matches_filter(state.log_filter.as_deref(), *level, message) {
+                        let (prefix, color) = log_style_for(*level, message, theme);
+                        let _ = self.print_above_viewport(prefix, message, color);
+                    }
                 }
+                AppEvent::Flutter(fl_core::FlutterEvent::AppStarted {
+                    app_id,
+                    vm_service_uri,
+                }) if !vm_service_uri.is_empty() => {
+                    // Surface the VM Service URI in the canonical Flutter
+                    // stdout format so IDE plugins that scrape terminal
+                    // output (IntelliJ / Android Studio Flutter plugin)
+                    // auto-attach to our session. Once attached, the IDE
+                    // routes Cmd+S → hot reload directly to the VM
+                    // Service — the user gets first-class hot reload from
+                    // IntelliJ without us having to relay anything.
+                    //
+                    // Format mirrors what `flutter run` itself prints:
+                    //   "A Dart VM Service on <device> is available at: <http-uri>"
+                    //
+                    // The daemon hands us a `wsUri` (WebSocket form). The
+                    // IDE plugin's scrape regex expects http://, so we
+                    // strip the `/ws` suffix and swap the scheme.
+                    let http_uri = ws_uri_to_http(vm_service_uri);
+                    let device = device_label_for(state, app_id);
+                    let line = format!(
+                        "A Dart VM Service on {device} is available at: {http_uri}"
+                    );
+                    // Empty prefix so the line is bytewise identical to
+                    // what vanilla `flutter run` emits — the IDE's regex
+                    // anchors on it.
+                    let _ = self.print_above_viewport("", &line, theme.cyan);
+                }
+                _ => {}
             }
         }
         state.apply(ev);
@@ -1075,6 +1106,57 @@ impl TuiRunner {
     }
 }
 
+/// Convert a VM Service WebSocket URI (what the Flutter daemon hands
+/// us in `app.debugPort`) into the HTTP form the IntelliJ Flutter
+/// plugin's auto-attach regex expects. Examples:
+///
+/// * `ws://127.0.0.1:50001/abc=/ws`  →  `http://127.0.0.1:50001/abc=/`
+/// * `wss://[::1]:50001/abc=/ws`     →  `https://[::1]:50001/abc=/`
+/// * already-http URIs pass through unchanged.
+fn ws_uri_to_http(uri: &str) -> String {
+    let (scheme_swapped, body) = if let Some(rest) = uri.strip_prefix("ws://") {
+        ("http://".to_string(), rest)
+    } else if let Some(rest) = uri.strip_prefix("wss://") {
+        ("https://".to_string(), rest)
+    } else {
+        // Already HTTP(S) or some unknown scheme — leave alone.
+        return uri.to_string();
+    };
+    // Strip the trailing `ws` token the daemon adds for the WebSocket
+    // endpoint, keeping the `/` that comes before it. The Flutter
+    // daemon emits `…/<token>=/ws`; the matching HTTP form is
+    // `…/<token>=/` — same path with a `/` instead of `/ws`. Only
+    // strip when preceded by `/` to avoid eating into a path segment
+    // that happens to end in `ws`.
+    let trimmed = if body.ends_with("/ws") {
+        &body[..body.len() - 2]
+    } else {
+        body
+    };
+    format!("{scheme_swapped}{trimmed}")
+}
+
+/// Best-effort device label for the IntelliJ-friendly VM Service line.
+/// Tries to match the device the IDE shows in its dropdown so the
+/// auto-attach log looks natural. Falls back to a generic "Flutter
+/// app" — the scrape regex doesn't depend on this token, only on the
+/// `is available at:` segment.
+fn device_label_for(state: &AppState, app_id: &str) -> String {
+    // If there's exactly one active session, attribute the URI to it
+    // — that's the common single-device case and it gives the IDE a
+    // useful label to display.
+    if state.active_sessions.len() == 1 {
+        return state.active_sessions[0].display_name.clone();
+    }
+    // Multi-device: the app_id from the daemon is opaque (a uuid),
+    // not a device name, so we can't map it back. Use it as a hint —
+    // the IDE just needs SOMETHING between "on" and "is available at:".
+    if !app_id.is_empty() {
+        return app_id.to_string();
+    }
+    "Flutter app".to_string()
+}
+
 /// Keys that act on a running device via the VM Service / daemon:
 /// hot reload/restart, theme, debug paint, platform override, perf
 /// overlay, screenshot, DevTools. They're meaningless until a device
@@ -1258,6 +1340,72 @@ mod tests {
             &Theme::TOKYO_NIGHT,
         );
         assert_eq!(prefix, "DEBUG ", "ordinary debug should remain DEBUG");
+    }
+
+    // ── ws_uri_to_http ───────────────────────────────────────────────────
+
+    #[test]
+    fn ws_uri_to_http_converts_typical_dart_vm_service_uri() {
+        // What the Flutter daemon hands us → what the IntelliJ Flutter
+        // plugin's auto-attach regex expects.
+        assert_eq!(
+            ws_uri_to_http("ws://127.0.0.1:50001/abc=/ws"),
+            "http://127.0.0.1:50001/abc=/"
+        );
+    }
+
+    #[test]
+    fn ws_uri_to_http_handles_wss_and_ipv6() {
+        assert_eq!(
+            ws_uri_to_http("wss://[::1]:50001/token=/ws"),
+            "https://[::1]:50001/token=/"
+        );
+    }
+
+    #[test]
+    fn ws_uri_to_http_passes_http_through_unchanged() {
+        // Some daemon builds already report the http form in `uri` —
+        // we should be idempotent.
+        assert_eq!(
+            ws_uri_to_http("http://127.0.0.1:50001/abc=/"),
+            "http://127.0.0.1:50001/abc=/"
+        );
+    }
+
+    #[test]
+    fn ws_uri_to_http_leaves_uri_without_ws_suffix_alone() {
+        // Defensive: if the daemon ever emits a ws:// URI without the
+        // trailing /ws, just swap the scheme without lopping anything.
+        assert_eq!(
+            ws_uri_to_http("ws://127.0.0.1:50001/abc=/"),
+            "http://127.0.0.1:50001/abc=/"
+        );
+    }
+
+    // ── device_label_for ─────────────────────────────────────────────────
+
+    #[test]
+    fn device_label_falls_back_to_generic_when_no_sessions() {
+        let state = AppState::new("my_app".into(), "debug".into());
+        assert_eq!(device_label_for(&state, ""), "Flutter app");
+    }
+
+    #[test]
+    fn device_label_uses_app_id_when_multi_session_and_id_known() {
+        let mut state = AppState::new("my_app".into(), "debug".into());
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "AAA".into(),
+                state: fl_core::DeviceSessionState::Connecting,
+            },
+        ));
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "BBB".into(),
+                state: fl_core::DeviceSessionState::Connecting,
+            },
+        ));
+        assert_eq!(device_label_for(&state, "uuid-xyz"), "uuid-xyz");
     }
 
     #[test]

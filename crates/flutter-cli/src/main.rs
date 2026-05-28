@@ -1,5 +1,6 @@
 mod build_cmd;
 mod cli;
+mod config;
 mod devices_cmd;
 mod external_cmd;
 mod init_cmd;

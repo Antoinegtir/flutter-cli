@@ -14,6 +14,15 @@ pub async fn run(
     mode: BuildMode,
     extra: Vec<String>,
 ) -> anyhow::Result<()> {
+    // Resolve the project root the SAME way run_multi will. We need it
+    // here, BEFORE the TUI takes over the terminal, so the pre-run
+    // hooks (codegen, lint, env-checks) can stream their output into
+    // the user's scrollback unobstructed.
+    let project_root = project
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap());
+    crate::config::run_pre_hooks("run", &project_root).await?;
+
     crate::multi::run_multi(
         project,
         devices_arg,

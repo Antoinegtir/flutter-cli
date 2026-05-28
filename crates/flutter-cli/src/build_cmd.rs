@@ -23,6 +23,12 @@ pub async fn run(
             project.display()
         ));
     }
+
+    // Pre-build hooks (e.g. icon generation, native code regen) run
+    // BEFORE the inline TUI takes over so their output remains in the
+    // user's scrollback.
+    crate::config::run_pre_hooks("build", &project).await?;
+
     let flutter = resolve_flutter(
         None,
         Some(project.as_path()),

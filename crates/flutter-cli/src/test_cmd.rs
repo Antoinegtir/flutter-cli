@@ -69,6 +69,10 @@ pub async fn run(opts: Options) -> anyhow::Result<()> {
     if !project.join("pubspec.yaml").exists() {
         return Err(anyhow!("no pubspec.yaml in {}", project.display()));
     }
+
+    // Pre-test hooks (codegen, fixture seeding, etc.) run BEFORE the
+    // inline TUI initializes so their output stays in the scrollback.
+    crate::config::run_pre_hooks("test", &project).await?;
     // `--golden` is shorthand for `flutter-cli test test/golden/`. Resolve it
     // before any path validation so the "needs `test/`" check below
     // can be skipped when goldens live elsewhere isn't a concern.

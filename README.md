@@ -63,6 +63,27 @@ Both paths drop a binary on your `PATH` and wire the shell shim into your rc aut
 
 `flutter-cli` auto-detects per-project FVM pins: it resolves `.fvm/flutter_sdk` first (what your IDE reads), then falls back to `.fvmrc` / legacy `.fvm/fvm_config.json` against `~/fvm/versions`. No `fvm flutter` prefix needed, and the resolved Flutter/Dart versions show up in the dashboard header.
 
+### Pre-run / pre-test / pre-build hooks
+
+Codegen, fixture seeding, env checks — drop a `flutter_cli:` section in `pubspec.yaml` and the commands run before the TUI takes over the terminal. First non-zero exit aborts.
+
+```yaml
+# pubspec.yaml
+flutter_cli:
+  pre_run:
+    - dart run build_runner build --delete-conflicting-outputs
+  pre_test:
+    - dart run build_runner build
+  pre_build:
+    - ./tool/check_env.sh
+```
+
+Each command is spawned through `sh -c` so pipes, `&&`, env-var substitution all work. Output streams live to your terminal — codegen progress stays visible after the dashboard exits.
+
+### IntelliJ / Android Studio hot reload
+
+`flutter-cli` prints the canonical `A Dart VM Service on <device> is available at: http://…` line as soon as the app boots. The Flutter IntelliJ plugin scrapes for that pattern and auto-attaches — **Cmd+S in your IDE then triggers hot reload** straight through the VM Service, no extra config needed.
+
 ### Upgrade
 
 Re-run the same install line — idempotent, no reload needed:
