@@ -28,10 +28,13 @@ pub struct DeviceSession {
     /// Captured from the Flutter daemon's first AppStarted event. Needed to
     /// send `app.restart` JSON-RPC back over the daemon's stdin.
     pub app_id: Arc<Mutex<Option<String>>>,
-    /// DevTools URL the Flutter daemon emits as `app.devTools: …` once
-    /// the VM Service is up. Captured live from log lines and used by
-    /// the `d` keybind to spawn `open <url>` (or `xdg-open` on Linux)
-    /// in the user's default browser.
+    /// Last VM Service URI emitted by Flutter. Used to synthesize the
+    /// DevTools URL when `flutter run --machine` does not print one.
+    pub vm_service_uri: Arc<Mutex<Option<String>>>,
+    /// DevTools URL captured from Flutter or synthesized from the served
+    /// DevTools host/port plus the VM Service URI. Used by the `d` keybind to
+    /// spawn `open <url>` (or `xdg-open` on Linux) in the user's default
+    /// browser.
     pub devtools_uri: Arc<Mutex<Option<String>>>,
 }
 
@@ -46,6 +49,7 @@ impl DeviceSession {
             vm_client: Arc::new(Mutex::new(None)),
             isolate_id: Arc::new(Mutex::new(None)),
             app_id: Arc::new(Mutex::new(None)),
+            vm_service_uri: Arc::new(Mutex::new(None)),
             devtools_uri: Arc::new(Mutex::new(None)),
         }
     }
@@ -207,6 +211,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let vm_client_slot = session.vm_client.clone();
     let isolate_slot = session.isolate_id.clone();
     let app_id_slot = session.app_id.clone();
+    let vm_service_uri_slot = session.vm_service_uri.clone();
     let devtools_slot = session.devtools_uri.clone();
     let daemon_slot = session.daemon.clone();
     let _ = vm_mdns_cache; // No longer used — Wi-Fi takeover removed.
@@ -254,8 +259,16 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             while let Some(ev) = flutter_rx_local.recv().await {
                 let prefixed = match ev {
                     FlutterEvent::Log { level, message } => {
-                        if let Some(rest) = message.strip_prefix("app.devTools: ") {
-                            *devtools_slot.lock().await = Some(rest.trim().to_string());
+                        if let Some(uri) = extract_devtools_uri_from_log(&message) {
+                            *devtools_slot.lock().await = Some(uri);
+                        } else if let Some(server) = message.strip_prefix("app.devToolsServer: ") {
+                            if let Some(vm_uri) = vm_service_uri_slot.lock().await.clone() {
+                                if let Some(devtools_uri) =
+                                    devtools_uri_from_server(server.trim(), &vm_uri)
+                                {
+                                    *devtools_slot.lock().await = Some(devtools_uri);
+                                }
+                            }
                         }
                         last_logs.push_back(message.clone());
                         if last_logs.len() > 6 {
@@ -301,6 +314,25 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                         }
                         if !app_id.is_empty() {
                             *app_id_slot.lock().await = Some(app_id.clone());
+                        }
+                        if !vm_service_uri.is_empty() {
+                            *vm_service_uri_slot.lock().await = Some(vm_service_uri.clone());
+                            if devtools_slot.lock().await.is_none() {
+                                if let Some(devtools_uri) =
+                                    devtools_uri_from_existing_server(vm_service_uri).await
+                                {
+                                    *devtools_slot.lock().await = Some(devtools_uri.clone());
+                                    event_tx_logs
+                                        .send(AppEvent::Flutter(FlutterEvent::Log {
+                                            level: LogLevel::Debug,
+                                            message: format!("app.devTools: {devtools_uri}"),
+                                        }))
+                                        .await
+                                        .ok();
+                                } else if let Some(daemon) = daemon_slot.lock().await.as_mut() {
+                                    daemon.send_devtools_serve().await.ok();
+                                }
+                            }
                         }
                         if !vm_connected && !vm_service_uri.is_empty() {
                             vm_connected = true;
@@ -1466,6 +1498,75 @@ fn sanitize_filename(name: &str) -> String {
     s.trim_matches('_').to_string()
 }
 
+fn extract_devtools_uri_from_log(message: &str) -> Option<String> {
+    if let Some(rest) = message.strip_prefix("app.devTools: ") {
+        let uri = rest.trim();
+        if !uri.is_empty() {
+            return Some(uri.to_string());
+        }
+    }
+
+    const HUMAN_PREFIX: &str = " is available at: ";
+    if message.contains("Flutter DevTools") {
+        if let Some((_, uri)) = message.rsplit_once(HUMAN_PREFIX) {
+            let uri = uri.trim().trim_end_matches('.');
+            if uri.starts_with("http://") || uri.starts_with("https://") {
+                return Some(uri.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+fn devtools_uri_from_server(server: &str, vm_service_uri: &str) -> Option<String> {
+    let vm_http_uri = vm_service_uri_to_http(vm_service_uri)?;
+    let base = if server.starts_with("http://") || server.starts_with("https://") {
+        server.to_string()
+    } else {
+        format!("http://{server}")
+    };
+    let mut url = url::Url::parse(&base).ok()?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.clear().append_pair("uri", &vm_http_uri);
+    }
+    Some(url.to_string())
+}
+
+async fn devtools_uri_from_existing_server(vm_service_uri: &str) -> Option<String> {
+    for port in 9100..9200 {
+        let connect = tokio::net::TcpStream::connect(("127.0.0.1", port));
+        if tokio::time::timeout(std::time::Duration::from_millis(50), connect)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .is_some()
+        {
+            return devtools_uri_from_server(&format!("127.0.0.1:{port}"), vm_service_uri);
+        }
+    }
+    None
+}
+
+fn vm_service_uri_to_http(uri: &str) -> Option<String> {
+    let mut url = url::Url::parse(uri).ok()?;
+    match url.scheme() {
+        "ws" => url.set_scheme("http").ok()?,
+        "wss" => url.set_scheme("https").ok()?,
+        "http" | "https" => {}
+        _ => return None,
+    }
+
+    let path = url.path().to_string();
+    if path == "/ws" {
+        url.set_path("/");
+    } else if let Some(prefix) = path.strip_suffix("/ws") {
+        url.set_path(&format!("{prefix}/"));
+    }
+    Some(url.to_string())
+}
+
 /// Open the captured Flutter DevTools URL for every session in the
 /// user's default browser. macOS gets `open`, everything else gets
 /// `xdg-open`. Sessions whose URL hasn't been captured yet (the
@@ -1480,7 +1581,15 @@ async fn open_devtools_all(sessions: &[DeviceSession], events: &mpsc::Sender<App
     let mut opened = 0;
     let mut missing = 0;
     for s in sessions {
-        let uri = s.devtools_uri.lock().await.clone();
+        let mut uri = s.devtools_uri.lock().await.clone();
+        if uri.is_none() {
+            if let Some(vm_uri) = s.vm_service_uri.lock().await.clone() {
+                uri = devtools_uri_from_existing_server(&vm_uri).await;
+                if let Some(found) = uri.clone() {
+                    *s.devtools_uri.lock().await = Some(found);
+                }
+            }
+        }
         let short = s.short_name.clone();
         match uri {
             Some(u) => {
@@ -2082,5 +2191,34 @@ mod tests {
         assert_eq!(s.serial, "Pixel_8_ABCDEFG");
         assert_eq!(s.short_name, "Pixel8AB"); // 8 alphanumeric chars
         assert_eq!(s.display_name, "Pixel 8");
+    }
+
+    #[test]
+    fn converts_vm_service_ws_uri_to_http() {
+        let uri = vm_service_uri_to_http("ws://127.0.0.1:58565/fkdizX_z0Oo=/ws").unwrap();
+        assert_eq!(uri, "http://127.0.0.1:58565/fkdizX_z0Oo=/");
+    }
+
+    #[test]
+    fn builds_devtools_uri_from_server_and_vm_service_uri() {
+        let uri =
+            devtools_uri_from_server("127.0.0.1:9103", "ws://127.0.0.1:58565/fkdizX_z0Oo=/ws")
+                .unwrap();
+        assert_eq!(
+            uri,
+            "http://127.0.0.1:9103/?uri=http%3A%2F%2F127.0.0.1%3A58565%2FfkdizX_z0Oo%3D%2F"
+        );
+    }
+
+    #[test]
+    fn extracts_human_devtools_log_uri() {
+        let uri = extract_devtools_uri_from_log(
+            "The Flutter DevTools debugger and profiler on Pixel is available at: http://127.0.0.1:9103/?uri=http://127.0.0.1:58565/abc/.",
+        )
+        .unwrap();
+        assert_eq!(
+            uri,
+            "http://127.0.0.1:9103/?uri=http://127.0.0.1:58565/abc/"
+        );
     }
 }

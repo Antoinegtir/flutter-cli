@@ -94,10 +94,8 @@ impl FlutterDaemon {
         // Stock Flutter ignores the env var (the patch is gated on it),
         // so flutter-cli still works against an unmodified SDK — just
         // with the time-based estimate.
-        let env: Vec<(String, String)> = vec![(
-            "FLUTTER_DAEMON_XCODE_PROGRESS".to_string(),
-            "1".to_string(),
-        )];
+        let env: Vec<(String, String)> =
+            vec![("FLUTTER_DAEMON_XCODE_PROGRESS".to_string(), "1".to_string())];
         Self::spawn_with_args(flutter, project_dir, &args, &env, tx).await
     }
 
@@ -216,6 +214,18 @@ impl FlutterDaemon {
         let payload = format!(
             r#"[{{"id":1,"method":"app.restart","params":{{"appId":"{app_id}","fullRestart":{full},"pause":false}}}}]"#
         );
+        if let Some(stdin) = self.stdin.as_mut() {
+            stdin.write_all(payload.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await?;
+        }
+        Ok(())
+    }
+
+    /// Ask the Flutter daemon to serve DevTools. The response is parsed from
+    /// stdout by `parse_daemon_line` and surfaced as an internal debug log.
+    pub async fn send_devtools_serve(&mut self) -> anyhow::Result<()> {
+        let payload = r#"[{"id":2,"method":"devtools.serve"}]"#;
         if let Some(stdin) = self.stdin.as_mut() {
             stdin.write_all(payload.as_bytes()).await?;
             stdin.write_all(b"\n").await?;

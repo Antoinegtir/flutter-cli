@@ -130,10 +130,7 @@ pub fn render_logs(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme
     };
     window.reverse();
 
-    let lines: Vec<Line> = window
-        .iter()
-        .map(|l| render_log_line(l, theme))
-        .collect();
+    let lines: Vec<Line> = window.iter().map(|l| render_log_line(l, theme)).collect();
 
     Paragraph::new(lines).style(theme.base()).render(inner, buf);
 }

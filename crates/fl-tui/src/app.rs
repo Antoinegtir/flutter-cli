@@ -533,17 +533,11 @@ impl AppState {
                 let is_xcode_sub = progress_id.as_deref() == Some("xcode.build.line");
                 if is_xcode_sub {
                     if !finished {
-                        if let Some(parent) = self
-                            .progress_phases
-                            .iter_mut()
-                            .rev()
-                            .find(|p| {
-                                p.finished_at.is_none()
-                                    && p.message.to_ascii_lowercase().contains("xcode build")
-                            })
-                        {
-                            parent.xcode_sub_steps =
-                                parent.xcode_sub_steps.saturating_add(1);
+                        if let Some(parent) = self.progress_phases.iter_mut().rev().find(|p| {
+                            p.finished_at.is_none()
+                                && p.message.to_ascii_lowercase().contains("xcode build")
+                        }) {
+                            parent.xcode_sub_steps = parent.xcode_sub_steps.saturating_add(1);
                         }
                     }
                     // We deliberately do NOT mirror sub-events to logs:
@@ -712,9 +706,11 @@ impl AppState {
         };
 
         // Scan from newest (back of deque) to oldest looking for a file ref.
-        let file_ref = self.logs.iter().rev().find_map(|l| {
-            crate::ide::extract_file_ref(&l.message)
-        });
+        let file_ref = self
+            .logs
+            .iter()
+            .rev()
+            .find_map(|l| crate::ide::extract_file_ref(&l.message));
 
         match file_ref {
             None => "No Dart file reference found in logs".to_string(),
