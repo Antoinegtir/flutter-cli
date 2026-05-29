@@ -16,6 +16,9 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::{mpsc, Mutex};
 
+const DEVTOOLS_SCAN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+const DEVTOOLS_SCAN_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
+
 #[derive(Clone)]
 pub struct DeviceSession {
     pub serial: String,
@@ -28,10 +31,13 @@ pub struct DeviceSession {
     /// Captured from the Flutter daemon's first AppStarted event. Needed to
     /// send `app.restart` JSON-RPC back over the daemon's stdin.
     pub app_id: Arc<Mutex<Option<String>>>,
-    /// DevTools URL the Flutter daemon emits as `app.devTools: …` once
-    /// the VM Service is up. Captured live from log lines and used by
-    /// the `d` keybind to spawn `open <url>` (or `xdg-open` on Linux)
-    /// in the user's default browser.
+    /// Last VM Service URI emitted by Flutter. Used to synthesize the
+    /// DevTools URL when `flutter run --machine` does not print one.
+    pub vm_service_uri: Arc<Mutex<Option<String>>>,
+    /// DevTools URL captured from Flutter or synthesized from the served
+    /// DevTools host/port plus the VM Service URI. Used by the `d` keybind to
+    /// spawn `open <url>` (or `xdg-open` on Linux) in the user's default
+    /// browser.
     pub devtools_uri: Arc<Mutex<Option<String>>>,
 }
 
@@ -46,6 +52,7 @@ impl DeviceSession {
             vm_client: Arc::new(Mutex::new(None)),
             isolate_id: Arc::new(Mutex::new(None)),
             app_id: Arc::new(Mutex::new(None)),
+            vm_service_uri: Arc::new(Mutex::new(None)),
             devtools_uri: Arc::new(Mutex::new(None)),
         }
     }
@@ -207,6 +214,7 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
     let vm_client_slot = session.vm_client.clone();
     let isolate_slot = session.isolate_id.clone();
     let app_id_slot = session.app_id.clone();
+    let vm_service_uri_slot = session.vm_service_uri.clone();
     let devtools_slot = session.devtools_uri.clone();
     let daemon_slot = session.daemon.clone();
     let _ = vm_mdns_cache; // No longer used — Wi-Fi takeover removed.
@@ -254,8 +262,20 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
             while let Some(ev) = flutter_rx_local.recv().await {
                 let prefixed = match ev {
                     FlutterEvent::Log { level, message } => {
-                        if let Some(rest) = message.strip_prefix("app.devTools: ") {
-                            *devtools_slot.lock().await = Some(rest.trim().to_string());
+                        if let Some(uri) = extract_devtools_uri_from_log(&message) {
+                            *devtools_slot.lock().await = Some(uri);
+                        } else if let Some(server) = message.strip_prefix("app.devToolsServer: ") {
+                            // parse_daemon_line surfaced the devtools.serve
+                            // response as "app.devToolsServer: host:port".
+                            // Combine it with the stored VM Service URI to
+                            // get the full browser-openable URL.
+                            if let Some(vm_uri) = vm_service_uri_slot.lock().await.clone() {
+                                if let Some(devtools_uri) =
+                                    devtools_uri_from_server(server.trim(), &vm_uri)
+                                {
+                                    *devtools_slot.lock().await = Some(devtools_uri);
+                                }
+                            }
                         }
                         last_logs.push_back(message.clone());
                         if last_logs.len() > 6 {
@@ -301,6 +321,44 @@ pub async fn spawn_session<R: CommandRunner + 'static>(
                         }
                         if !app_id.is_empty() {
                             *app_id_slot.lock().await = Some(app_id.clone());
+                        }
+                        // Store the VM Service URI so we can synthesise a
+                        // DevTools URL even if Flutter never prints one.
+                        // --machine mode reliably gives us this via
+                        // app.debugPort, but the human-readable DevTools
+                        // line is often missing.
+                        if !vm_service_uri.is_empty() {
+                            *vm_service_uri_slot.lock().await = Some(vm_service_uri.clone());
+                            // Try to build a DevTools URL now.  First check
+                            // whether a DevTools server is already listening
+                            // (previous hot-restart, or the SDK started one
+                            // before we got here).  If not, ask the daemon to
+                            // serve one — the response will be picked up by
+                            // parse_daemon_line and routed back as an
+                            // app.devToolsServer log.
+                            if devtools_slot.lock().await.is_none() {
+                                let vm_uri = vm_service_uri.clone();
+                                let devtools_slot_for_task = devtools_slot.clone();
+                                let daemon_slot_for_task = daemon_slot.clone();
+                                let event_tx_for_task = event_tx_logs.clone();
+                                tokio::spawn(async move {
+                                    if let Some(devtools_uri) = ensure_devtools_uri(
+                                        &vm_uri,
+                                        &devtools_slot_for_task,
+                                        &daemon_slot_for_task,
+                                    )
+                                    .await
+                                    {
+                                        event_tx_for_task
+                                            .send(AppEvent::Flutter(FlutterEvent::Log {
+                                                level: LogLevel::Debug,
+                                                message: format!("app.devTools: {devtools_uri}"),
+                                            }))
+                                            .await
+                                            .ok();
+                                    }
+                                });
+                            }
                         }
                         if !vm_connected && !vm_service_uri.is_empty() {
                             vm_connected = true;
@@ -1466,6 +1524,136 @@ fn sanitize_filename(name: &str) -> String {
     s.trim_matches('_').to_string()
 }
 
+/// Extract a DevTools URL from a Flutter log line.
+///
+/// `flutter run --machine` may emit the URL in two forms:
+/// 1. The structured prefix `app.devTools: <url>` (most common).
+/// 2. The human-readable sentence `"The Flutter DevTools … is available at: <url>."` — seen
+///    when the daemon falls back to the non-machine progress path.
+///
+/// Returns `None` when neither pattern matches.
+fn extract_devtools_uri_from_log(message: &str) -> Option<String> {
+    if let Some(rest) = message.strip_prefix("app.devTools: ") {
+        let uri = rest.trim();
+        if !uri.is_empty() {
+            return Some(uri.to_string());
+        }
+    }
+
+    const HUMAN_PREFIX: &str = " is available at: ";
+    if message.contains("Flutter DevTools") {
+        if let Some((_, uri)) = message.rsplit_once(HUMAN_PREFIX) {
+            let uri = uri.trim().trim_end_matches('.');
+            if uri.starts_with("http://") || uri.starts_with("https://") {
+                return Some(uri.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Build a full DevTools browser URL from a DevTools server address
+/// and the VM Service URI.  The VM Service URI is converted from its
+/// `ws://` form to `http://` and percent-encoded into the `?uri=`
+/// query parameter that DevTools expects.
+fn devtools_uri_from_server(server: &str, vm_service_uri: &str) -> Option<String> {
+    let vm_http_uri = vm_service_uri_to_http(vm_service_uri)?;
+    let base = if server.starts_with("http://") || server.starts_with("https://") {
+        server.to_string()
+    } else {
+        format!("http://{server}")
+    };
+    let mut url = url::Url::parse(&base).ok()?;
+    {
+        let mut query = url.query_pairs_mut();
+        query.clear().append_pair("uri", &vm_http_uri);
+    }
+    Some(url.to_string())
+}
+
+/// Probe localhost ports 9100–9199 for a running DevTools server.
+///
+/// Flutter (via `dart devtools --no-launch-browser`) binds to 9100 by
+/// default and increments when the port is taken.  A quick TCP connect
+/// with a 50 ms timeout per port is cheap, and if a server is found we
+/// can synthesise the DevTools URL without waiting for the daemon to
+/// print one.
+async fn devtools_uri_from_existing_server(vm_service_uri: &str) -> Option<String> {
+    for port in 9100..9200 {
+        let connect = tokio::net::TcpStream::connect(("127.0.0.1", port));
+        if tokio::time::timeout(std::time::Duration::from_millis(50), connect)
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .is_some()
+        {
+            return devtools_uri_from_server(&format!("127.0.0.1:{port}"), vm_service_uri);
+        }
+    }
+    None
+}
+
+async fn wait_for_devtools_uri_from_existing_server(vm_service_uri: &str) -> Option<String> {
+    let started = std::time::Instant::now();
+    loop {
+        if let Some(uri) = devtools_uri_from_existing_server(vm_service_uri).await {
+            return Some(uri);
+        }
+        if started.elapsed() >= DEVTOOLS_SCAN_TIMEOUT {
+            return None;
+        }
+        tokio::time::sleep(DEVTOOLS_SCAN_INTERVAL).await;
+    }
+}
+
+async fn ensure_devtools_uri(
+    vm_service_uri: &str,
+    devtools_slot: &Arc<Mutex<Option<String>>>,
+    daemon_slot: &Arc<Mutex<Option<FlutterDaemon>>>,
+) -> Option<String> {
+    if let Some(uri) = devtools_slot.lock().await.clone() {
+        return Some(uri);
+    }
+
+    if let Some(uri) = devtools_uri_from_existing_server(vm_service_uri).await {
+        *devtools_slot.lock().await = Some(uri.clone());
+        return Some(uri);
+    }
+
+    if let Some(daemon) = daemon_slot.lock().await.as_mut() {
+        daemon.send_devtools_serve().await.ok();
+    }
+
+    if let Some(uri) = wait_for_devtools_uri_from_existing_server(vm_service_uri).await {
+        *devtools_slot.lock().await = Some(uri.clone());
+        return Some(uri);
+    }
+
+    None
+}
+
+/// Convert a VM Service URI from its WebSocket form (`ws://…/ws`) to
+/// the plain HTTP origin that DevTools expects in its `?uri=` param.
+/// Strips the trailing `/ws` path segment and swaps the scheme.
+fn vm_service_uri_to_http(uri: &str) -> Option<String> {
+    let mut url = url::Url::parse(uri).ok()?;
+    match url.scheme() {
+        "ws" => url.set_scheme("http").ok()?,
+        "wss" => url.set_scheme("https").ok()?,
+        "http" | "https" => {}
+        _ => return None,
+    }
+
+    let path = url.path().to_string();
+    if path == "/ws" {
+        url.set_path("/");
+    } else if let Some(prefix) = path.strip_suffix("/ws") {
+        url.set_path(&format!("{prefix}/"));
+    }
+    Some(url.to_string())
+}
+
 /// Open the captured Flutter DevTools URL for every session in the
 /// user's default browser. macOS gets `open`, everything else gets
 /// `xdg-open`. Sessions whose URL hasn't been captured yet (the
@@ -1480,7 +1668,16 @@ async fn open_devtools_all(sessions: &[DeviceSession], events: &mpsc::Sender<App
     let mut opened = 0;
     let mut missing = 0;
     for s in sessions {
-        let uri = s.devtools_uri.lock().await.clone();
+        let mut uri = s.devtools_uri.lock().await.clone();
+        // Last-resort: the startup window may have passed
+        // without capturing a URL (race between daemon
+        // events and DevTools server boot).  One more probe
+        // before we show the "not ready" warning.
+        if uri.is_none() {
+            if let Some(vm_uri) = s.vm_service_uri.lock().await.clone() {
+                uri = ensure_devtools_uri(&vm_uri, &s.devtools_uri, &s.daemon).await;
+            }
+        }
         let short = s.short_name.clone();
         match uri {
             Some(u) => {
@@ -2082,5 +2279,88 @@ mod tests {
         assert_eq!(s.serial, "Pixel_8_ABCDEFG");
         assert_eq!(s.short_name, "Pixel8AB"); // 8 alphanumeric chars
         assert_eq!(s.display_name, "Pixel 8");
+    }
+
+    #[test]
+    fn converts_vm_service_ws_uri_to_http() {
+        let uri = vm_service_uri_to_http("ws://127.0.0.1:58565/fkdizX_z0Oo=/ws").unwrap();
+        assert_eq!(uri, "http://127.0.0.1:58565/fkdizX_z0Oo=/");
+    }
+
+    #[test]
+    fn builds_devtools_uri_from_server_and_vm_service_uri() {
+        let uri =
+            devtools_uri_from_server("127.0.0.1:9103", "ws://127.0.0.1:58565/fkdizX_z0Oo=/ws")
+                .unwrap();
+        assert_eq!(
+            uri,
+            "http://127.0.0.1:9103/?uri=http%3A%2F%2F127.0.0.1%3A58565%2FfkdizX_z0Oo%3D%2F"
+        );
+    }
+
+    #[tokio::test]
+    async fn ensure_devtools_uri_synthesizes_from_existing_server() {
+        let (_port, _listener) = (9100..9200)
+            .find_map(|port| {
+                std::net::TcpListener::bind(("127.0.0.1", port))
+                    .ok()
+                    .map(|listener| (port, listener))
+            })
+            .expect("a free DevTools test port");
+        let devtools_slot = Arc::new(Mutex::new(None));
+        let daemon_slot: Arc<Mutex<Option<FlutterDaemon>>> = Arc::new(Mutex::new(None));
+
+        let uri = ensure_devtools_uri(
+            "ws://127.0.0.1:58565/fkdizX_z0Oo=/ws",
+            &devtools_slot,
+            &daemon_slot,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(devtools_slot.lock().await.as_deref(), Some(uri.as_str()));
+        assert!(uri.starts_with("http://127.0.0.1:"));
+        assert!(uri.contains("uri=http%3A%2F%2F127.0.0.1%3A58565%2FfkdizX_z0Oo%3D%2F"));
+    }
+
+    #[test]
+    fn extracts_human_devtools_log_uri() {
+        let uri = extract_devtools_uri_from_log(
+            "The Flutter DevTools debugger and profiler on Pixel is available at: http://127.0.0.1:9103/?uri=http://127.0.0.1:58565/abc/.",
+        )
+        .unwrap();
+        assert_eq!(
+            uri,
+            "http://127.0.0.1:9103/?uri=http://127.0.0.1:58565/abc/"
+        );
+    }
+
+    #[test]
+    fn converts_plain_http_vm_service_uri() {
+        let uri = vm_service_uri_to_http("http://127.0.0.1:58565/fkdizX_z0Oo=/").unwrap();
+        assert_eq!(uri, "http://127.0.0.1:58565/fkdizX_z0Oo=/");
+    }
+
+    #[test]
+    fn converts_wss_vm_service_uri() {
+        let uri = vm_service_uri_to_http("wss://127.0.0.1:58565/fkdizX_z0Oo=/ws").unwrap();
+        assert_eq!(uri, "https://127.0.0.1:58565/fkdizX_z0Oo=/");
+    }
+
+    #[test]
+    fn rejects_unknown_scheme() {
+        assert!(vm_service_uri_to_http("ftp://127.0.0.1:58565/").is_none());
+    }
+
+    #[test]
+    fn extract_devtools_uri_from_machine_prefix() {
+        let uri =
+            extract_devtools_uri_from_log("app.devTools: http://127.0.0.1:9100/?uri=foo").unwrap();
+        assert_eq!(uri, "http://127.0.0.1:9100/?uri=foo");
+    }
+
+    #[test]
+    fn extract_devtools_ignores_unrelated_log() {
+        assert!(extract_devtools_uri_from_log("I/flutter: hello world").is_none());
     }
 }
