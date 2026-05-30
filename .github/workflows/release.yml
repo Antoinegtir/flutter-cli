@@ -190,3 +190,48 @@ jobs:
               --verify-tag
           fi
 
+  publish_npm:
+    name: publish npm wrapper
+    needs: release
+    runs-on: ubuntu-latest
+    # The `npm-publish` environment is registered on npmjs.com as a
+    # Trusted Publisher (see Settings → Trusted Publisher on the
+    # @antoinegtir/flutter-cli package). It scopes the OIDC token so
+    # npm only accepts a publish from THIS workflow on THIS branch /
+    # environment — no long-lived NPM_TOKEN needed.
+    environment: npm-publish
+    permissions:
+      # `id-token: write` enables OIDC token minting for the
+      # trusted-publisher exchange + the `--provenance` attestation.
+      # `contents: read` is the default for actions/checkout.
+      id-token: write
+      contents: read
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Sync npm package version to the release tag
+        # Strip the leading `v` so `v0.4.8` becomes `0.4.8`. The
+        # version in npm/package.json must match the release tag —
+        # otherwise downstream `npm i -g @antoinegtir/flutter-cli`
+        # users get a stale wrapper.
+        working-directory: npm
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
+          version="${tag#v}"
+          # `npm version` rejects "no version change" — only call it
+          # when the package.json is actually out of date.
+          current=$(node -p "require('./package.json').version")
+          if [ "$current" != "$version" ]; then
+            npm version "$version" --no-git-tag-version
+          fi
+
+      - name: Publish to npm with provenance
+        working-directory: npm
+        run: npm publish --provenance --access public
