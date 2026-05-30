@@ -222,6 +222,18 @@ impl FlutterDaemon {
         Ok(())
     }
 
+    /// Ask the Flutter daemon to serve DevTools. The response is parsed from
+    /// stdout by `parse_daemon_line` and surfaced as an internal debug log.
+    pub async fn send_devtools_serve(&mut self) -> anyhow::Result<()> {
+        let payload = r#"[{"id":2,"method":"devtools.serve"}]"#;
+        if let Some(stdin) = self.stdin.as_mut() {
+            stdin.write_all(payload.as_bytes()).await?;
+            stdin.write_all(b"\n").await?;
+            stdin.flush().await?;
+        }
+        Ok(())
+    }
+
     /// Wait until the child process exits and return its code.
     pub async fn wait(&mut self) -> anyhow::Result<Option<i32>> {
         let status = self.child.wait().await?;

@@ -38,3 +38,4 @@ serde_json.workspace = true
 serde = { workspace = true }
 serde_yml = "0.0.12"
 chrono.workspace = true
+url.workspace = true
