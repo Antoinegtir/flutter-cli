@@ -265,12 +265,7 @@ fn dart_compiler_diagnostic_kind(message: &str) -> Option<DartDiag> {
     // error. We can't know whether the original was an error or
     // warning without state, so always promote to ERROR — overshooting
     // to red is less bad than leaving it dim.
-    if !trimmed.is_empty()
-        && trimmed
-            .trim_end()
-            .chars()
-            .all(|c| c == '^')
-    {
+    if !trimmed.is_empty() && trimmed.trim_end().chars().all(|c| c == '^') {
         return Some(DartDiag::Error);
     }
 
@@ -729,9 +724,7 @@ impl TuiRunner {
                     // strip the `/ws` suffix and swap the scheme.
                     let http_uri = ws_uri_to_http(vm_service_uri);
                     let device = device_label_for(state, app_id);
-                    let line = format!(
-                        "A Dart VM Service on {device} is available at: {http_uri}"
-                    );
+                    let line = format!("A Dart VM Service on {device} is available at: {http_uri}");
                     // Empty prefix so the line is bytewise identical to
                     // what vanilla `flutter run` emits — the IDE's regex
                     // anchors on it.
@@ -1304,7 +1297,9 @@ mod tests {
     fn dart_diag_ignores_source_code_lines() {
         // The line of code that the error points at — no `.dart:` ref.
         assert!(dart_compiler_diagnostic_kind("    AppLocalizations.delegate,").is_none());
-        assert!(dart_compiler_diagnostic_kind("    GlobalMaterialLocalizations.delegate,").is_none());
+        assert!(
+            dart_compiler_diagnostic_kind("    GlobalMaterialLocalizations.delegate,").is_none()
+        );
     }
 
     #[test]
@@ -1329,7 +1324,10 @@ mod tests {
             "lib/main.dart:178:26: Error: Expected '(' after this.",
             &Theme::TOKYO_NIGHT,
         );
-        assert_eq!(prefix, "ERROR ", "debug-tagged dart error should be promoted");
+        assert_eq!(
+            prefix, "ERROR ",
+            "debug-tagged dart error should be promoted"
+        );
     }
 
     #[test]

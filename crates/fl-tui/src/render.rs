@@ -36,8 +36,7 @@ const FOOTER_BINDS: &[&str] = &[
 // is surfaced even though the app isn't running yet — it's the
 // moment the user needs it most, since most pre-ready failures are
 // Dart compilation errors with a file ref in the log.
-const FOOTER_FULL_PRE_READY_STATIC: &str =
-    " [e] error ↗  [/] filter  [c] copy 📋  [q] quit ";
+const FOOTER_FULL_PRE_READY_STATIC: &str = " [e] error ↗  [/] filter  [c] copy 📋  [q] quit ";
 const FOOTER_MEDIUM_PRE_READY_STATIC: &str = " [e] err  [q] quit ";
 const FOOTER_SHORT_PRE_READY_STATIC: &str = "· e err · q quit ";
 
@@ -517,11 +516,7 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
     } else {
         Style::default().fg(theme.accent).bg(bg)
     };
-    let mid_pad = " ".repeat(
-        bar_budget
-            .saturating_sub(bar_w)
-            .max(1),
-    );
+    let mid_pad = " ".repeat(bar_budget.saturating_sub(bar_w).max(1));
 
     use ratatui::text::Span;
     let spans = vec![
@@ -954,7 +949,12 @@ mod tests {
             finished: false,
         }));
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 24));
-        render(Rect::new(0, 0, 100, 24), &mut buf, &state, &Theme::TOKYO_NIGHT);
+        render(
+            Rect::new(0, 0, 100, 24),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
         let text = dump_buffer(&buf);
         assert!(text.contains('%'), "footer should print %, got:\n{text}");
         assert!(

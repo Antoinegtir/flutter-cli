@@ -98,10 +98,7 @@ fn as_rest_available() -> bool {
 /// True if `name` resolves to an executable in the current PATH.
 fn which_exists(name: &str) -> bool {
     std::env::var_os("PATH")
-        .map(|p| {
-            std::env::split_paths(&p)
-                .any(|dir| dir.join(name).exists())
-        })
+        .map(|p| std::env::split_paths(&p).any(|dir| dir.join(name).exists()))
         .unwrap_or(false)
 }
 
@@ -186,7 +183,11 @@ pub fn extract_file_ref(message: &str) -> Option<FileRef> {
             .filter(|&j| after[j + 1..].starts_with(|c: char| c.is_ascii_digit()))
             .and_then(|j| parse_leading_u32(&after[j + 1..]));
 
-        return Some(FileRef { rel_path: rel, line, col });
+        return Some(FileRef {
+            rel_path: rel,
+            line,
+            col,
+        });
     }
 
     None
@@ -304,8 +305,16 @@ fn url_encode(s: &str) -> String {
             b' ' => out.push_str("%20"),
             _ => {
                 out.push('%');
-                out.push(char::from_digit((b >> 4) as u32, 16).unwrap_or('0').to_ascii_uppercase());
-                out.push(char::from_digit((b & 0xf) as u32, 16).unwrap_or('0').to_ascii_uppercase());
+                out.push(
+                    char::from_digit((b >> 4) as u32, 16)
+                        .unwrap_or('0')
+                        .to_ascii_uppercase(),
+                );
+                out.push(
+                    char::from_digit((b & 0xf) as u32, 16)
+                        .unwrap_or('0')
+                        .to_ascii_uppercase(),
+                );
             }
         }
     }
@@ -338,7 +347,8 @@ mod tests {
 
     #[test]
     fn skip_flutter_framework_path() {
-        let msg = "#1      StatefulElement.build (package:flutter/src/widgets/framework.dart:4865:27)";
+        let msg =
+            "#1      StatefulElement.build (package:flutter/src/widgets/framework.dart:4865:27)";
         assert!(extract_file_ref(msg).is_none());
     }
 
@@ -385,5 +395,4 @@ mod tests {
         assert_eq!(r.rel_path, "integration_test/app_test.dart");
         assert_eq!(r.line, 15);
     }
-
 }

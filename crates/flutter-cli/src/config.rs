@@ -118,7 +118,11 @@ pub async fn run_pre_hooks(subcmd: &str, project_root: &Path) -> Result<()> {
     );
 
     for (i, cmd) in hooks.iter().enumerate() {
-        eprintln!("\x1b[2m  [{}/{}]\x1b[0m \x1b[36m$ {cmd}\x1b[0m", i + 1, hooks.len());
+        eprintln!(
+            "\x1b[2m  [{}/{}]\x1b[0m \x1b[36m$ {cmd}\x1b[0m",
+            i + 1,
+            hooks.len()
+        );
         let status = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(cmd)
@@ -230,7 +234,10 @@ mod tests {
         let res = run_pre_hooks("run", &dir).await;
         assert!(res.is_err(), "expected error from failing hook");
         let msg = format!("{}", res.unwrap_err());
-        assert!(msg.contains("false"), "error should name the failing cmd: {msg}");
+        assert!(
+            msg.contains("false"),
+            "error should name the failing cmd: {msg}"
+        );
     }
 
     #[tokio::test]

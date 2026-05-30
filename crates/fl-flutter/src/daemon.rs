@@ -94,10 +94,8 @@ impl FlutterDaemon {
         // Stock Flutter ignores the env var (the patch is gated on it),
         // so flutter-cli still works against an unmodified SDK — just
         // with the time-based estimate.
-        let env: Vec<(String, String)> = vec![(
-            "FLUTTER_DAEMON_XCODE_PROGRESS".to_string(),
-            "1".to_string(),
-        )];
+        let env: Vec<(String, String)> =
+            vec![("FLUTTER_DAEMON_XCODE_PROGRESS".to_string(), "1".to_string())];
         Self::spawn_with_args(flutter, project_dir, &args, &env, tx).await
     }
 
