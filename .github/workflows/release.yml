@@ -215,22 +215,27 @@ jobs:
           node-version: "20"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Sync npm package version to the release tag
-        # Strip the leading `v` so `v0.4.8` becomes `0.4.8`. The
-        # version in npm/package.json must match the release tag —
-        # otherwise downstream `npm i -g @antoinegtir/flutter-cli`
-        # users get a stale wrapper.
+      - name: Sync npm wrapper + binary version to the release tag
+        # Strip the leading `v` so `v0.4.8` becomes `0.4.8`, then bump
+        # BOTH `version` (the npm wrapper itself) AND `binaryVersion`
+        # (the GitHub Release tag `install.js` downloads from). If
+        # binaryVersion stays at an older value, `npm i -g` pulls a
+        # newer wrapper that still installs stale binaries — silent
+        # version drift in the user's PATH.
         working-directory: npm
         run: |
           set -euo pipefail
           tag="${GITHUB_REF_NAME:-${{ inputs.tag }}}"
           version="${tag#v}"
-          # `npm version` rejects "no version change" — only call it
-          # when the package.json is actually out of date.
-          current=$(node -p "require('./package.json').version")
-          if [ "$current" != "$version" ]; then
-            npm version "$version" --no-git-tag-version
-          fi
+          node -e "
+            const fs = require('fs');
+            const p = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+            p.version = '$version';
+            p.binaryVersion = '$version';
+            fs.writeFileSync('package.json', JSON.stringify(p, null, 2) + '\n');
+          "
+          echo 'After bump:'
+          node -p "JSON.stringify({version: require('./package.json').version, binaryVersion: require('./package.json').binaryVersion}, null, 2)"
 
       - name: Publish to npm with provenance
         working-directory: npm
