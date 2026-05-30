@@ -212,8 +212,19 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm to a version that supports OIDC trusted publishers
+        # Node 22 LTS ships with npm 10.x, but OIDC trusted-publisher
+        # token exchange landed in npm 11.5.1. Without it, `npm publish`
+        # silently falls back to anonymous and the registry replies with
+        # the misleading `404 Not Found` we hit on v0.4.7 and v0.4.8 —
+        # the package exists, but the publisher is not recognised.
+        run: |
+          set -euo pipefail
+          npm install -g npm@latest
+          echo "npm: $(npm --version)"
 
       - name: Sync npm wrapper + binary version to the release tag
         # Strip the leading `v` so `v0.4.8` becomes `0.4.8`, then bump
