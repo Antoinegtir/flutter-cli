@@ -82,7 +82,7 @@ pub fn load_pubspec_config(project_root: &Path) -> Result<FlutterCliConfig> {
         }
         Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
     };
-    let pubspec: Pubspec = serde_yml::from_str(&raw)
+    let pubspec: Pubspec = serde_yaml_ng::from_str(&raw)
         .with_context(|| format!("parsing {} (flutter_cli section)", path.display()))?;
     Ok(pubspec.flutter_cli)
 }

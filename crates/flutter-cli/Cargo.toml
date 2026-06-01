@@ -36,5 +36,10 @@ futures-util.workspace = true
 crossterm.workspace = true
 serde_json.workspace = true
 serde = { workspace = true }
-serde_yml = "0.0.12"
+# serde_yaml_ng: actively-maintained community fork of the (now
+# deprecated) serde_yaml. We moved off `serde_yml` because that fork
+# shipped a parsing regression in a 0.0.x patch (Dependabot #46) and
+# has a poor maintenance reputation. `serde_yaml_ng` keeps the exact
+# same `from_str` API, so the swap is a one-line import change.
+serde_yaml_ng = "0.10"
 chrono.workspace = true
