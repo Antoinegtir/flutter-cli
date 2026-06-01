@@ -1,5 +1,7 @@
 <div align="center">
 
+**English | [简体中文](README.zh-CN.md)**
+
 # `flutter run`, but with superpowers.
 
 [![Release](https://img.shields.io/github/v/release/Antoinegtir/flutter-cli?logo=github&color=brightgreen)](https://github.com/Antoinegtir/flutter-cli/releases/latest)
