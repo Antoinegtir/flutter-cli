@@ -43,3 +43,4 @@ serde = { workspace = true }
 # same `from_str` API, so the swap is a one-line import change.
 serde_yaml_ng = "0.10"
 chrono.workspace = true
+url.workspace = true

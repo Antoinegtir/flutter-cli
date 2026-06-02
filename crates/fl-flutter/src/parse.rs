@@ -12,6 +12,23 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
     let first = v.as_array()?.first()?;
     let obj = first.as_object()?;
 
+    // JSON-RPC response to our devtools.serve request (id=2).
+    // We match on the result shape (host + port) rather than
+    // the id because the daemon may reuse the same shape for
+    // future methods — and the worst case is a harmless extra
+    // debug log line.
+    if let Some(result) = obj.get("result") {
+        if let (Some(host), Some(port)) = (
+            result.get("host").and_then(Value::as_str),
+            result.get("port").and_then(Value::as_u64),
+        ) {
+            return Some(FlutterEvent::Log {
+                level: LogLevel::Debug,
+                message: format!("app.devToolsServer: {host}:{port}"),
+            });
+        }
+    }
+
     if let Some(event) = obj.get("event").and_then(Value::as_str) {
         return match event {
             "daemon.connected" => Some(FlutterEvent::DaemonReady),
@@ -90,7 +107,12 @@ pub fn parse_daemon_line(raw: &str) -> Option<FlutterEvent> {
                 // Connection-info side channels; summarise.
                 let params = obj.get("params");
                 let uri = params
-                    .and_then(|p| p.get("wsUri").or_else(|| p.get("uri")))
+                    .and_then(|p| {
+                        p.get("devToolsUrl")
+                            .or_else(|| p.get("url"))
+                            .or_else(|| p.get("wsUri"))
+                            .or_else(|| p.get("uri"))
+                    })
                     .and_then(Value::as_str)
                     .unwrap_or("");
                 Some(FlutterEvent::Log {
@@ -230,6 +252,18 @@ mod tests {
             } => {
                 assert_eq!(app_id, "abc");
                 assert!(vm_service_uri.starts_with("ws://"));
+            }
+            _ => panic!("wrong variant"),
+        }
+    }
+
+    #[test]
+    fn parses_devtools_serve_response() {
+        let line = r#"[{"id":2,"result":{"host":"127.0.0.1","port":9103}}]"#;
+        match parse_daemon_line(line).unwrap() {
+            FlutterEvent::Log { level, message } => {
+                assert_eq!(level, LogLevel::Debug);
+                assert_eq!(message, "app.devToolsServer: 127.0.0.1:9103");
             }
             _ => panic!("wrong variant"),
         }
