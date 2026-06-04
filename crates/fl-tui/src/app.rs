@@ -314,6 +314,39 @@ impl AppState {
         self.vm_connected
     }
 
+    /// True when the device dropped out (USB unplugged / session
+    /// stopped) and we're idling until it returns — NOT while a fresh
+    /// launch or a post-replug recompile is in flight. Drives the
+    /// footer to show a "rebranche le câble" hint instead of the launch
+    /// progress bar, which would otherwise freeze at 99% and read as
+    /// "still loading" the whole time the phone is unplugged.
+    ///
+    /// Gated three ways so it only fires in the genuine waiting state:
+    ///   • VM Service is down (`!vm_connected`) — app isn't live;
+    ///   • at least one session is terminal (`Stopped`/`Failed`) — a
+    ///     device actually went away;
+    ///   • nothing is `Connecting`/`Reloading` — so the moment the
+    ///     runner relaunches on replug we fall back to the real
+    ///     progress bar instead of lying that we're still waiting.
+    pub fn awaiting_reconnect(&self) -> bool {
+        if self.vm_connected {
+            return false;
+        }
+        let any_terminal = self.active_sessions.iter().any(|s| {
+            matches!(
+                s.state,
+                fl_core::DeviceSessionState::Stopped | fl_core::DeviceSessionState::Failed
+            )
+        });
+        let any_active = self.active_sessions.iter().any(|s| {
+            matches!(
+                s.state,
+                fl_core::DeviceSessionState::Connecting | fl_core::DeviceSessionState::Reloading
+            )
+        });
+        any_terminal && !any_active
+    }
+
     /// The currently-active progress phase, if any. `None` once every
     /// recorded phase has finished — used by the renderer to decide
     /// whether to show the loading strip below the header.
@@ -442,7 +475,9 @@ impl AppState {
                     let short = short_name_for_serial(&serial);
                     self.show_persistent_banner(
                         BannerKind::Warn,
-                        &format!("[{short}] device disconnected — press q to exit"),
+                        &format!(
+                            "[{short}] débranché — rebranche le câble, ça relance tout seul (q pour quitter)"
+                        ),
                     );
                 }
                 // Freeze the chronometer on green (✓) only when EVERY
@@ -1305,6 +1340,62 @@ mod tests {
             serial: "X".into(),
         }));
         assert!(s.banner.is_some());
+    }
+
+    #[test]
+    fn awaiting_reconnect_true_when_session_stopped_and_idle() {
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "X".into(),
+            state: fl_core::DeviceSessionState::Stopped,
+        }));
+        assert!(s.awaiting_reconnect());
+    }
+
+    #[test]
+    fn awaiting_reconnect_false_during_initial_build() {
+        // Fresh launch: the session is Connecting, not stopped — this
+        // is the real progress-bar case, not a disconnect.
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "X".into(),
+            state: fl_core::DeviceSessionState::Connecting,
+        }));
+        assert!(!s.awaiting_reconnect());
+    }
+
+    #[test]
+    fn awaiting_reconnect_drops_when_replug_recompile_starts() {
+        // Unplug → Stopped (waiting). Replug → the runner relaunches
+        // and the session flips back to Connecting; we must hand the
+        // footer back to the real progress bar immediately.
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "X".into(),
+            state: fl_core::DeviceSessionState::Stopped,
+        }));
+        assert!(s.awaiting_reconnect(), "should wait while unplugged");
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "X".into(),
+            state: fl_core::DeviceSessionState::Connecting,
+        }));
+        assert!(
+            !s.awaiting_reconnect(),
+            "recompile after replug must show progress, not the wait hint"
+        );
+    }
+
+    #[test]
+    fn awaiting_reconnect_false_when_vm_still_connected() {
+        // Multi-device: one device stopped but the VM Service is still
+        // live on another — the app is running, so don't show the hint.
+        let mut s = AppState::new("a".into(), "d".into());
+        s.apply(AppEvent::Device(DeviceEvent::SessionState {
+            serial: "X".into(),
+            state: fl_core::DeviceSessionState::Stopped,
+        }));
+        s.vm_connected = true;
+        assert!(!s.awaiting_reconnect());
     }
 
     #[test]

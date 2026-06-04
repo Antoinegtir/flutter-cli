@@ -477,6 +477,16 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         return;
     }
 
+    // Device unplugged / session stopped before (or after) the app went
+    // live: the launch progress bar would freeze at 99% and read as
+    // "still loading" the whole time the phone is off. Show an explicit
+    // waiting-for-replug hint instead — the runner polls for the cable
+    // and auto-relaunches on reconnect, so say exactly that.
+    if state.awaiting_reconnect() {
+        render_awaiting_reconnect_footer(area, buf, theme);
+        return;
+    }
+
     // Pre-ready: render a real percentage bar (driven by daemon
     // progress events) in place of the old shimmer hint. The static
     // keybinds suffix is kept dimmed and right-aligned. Format on a
@@ -526,6 +536,27 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
         Span::styled(static_text.to_string(), theme.dimmed()),
     ];
     Paragraph::new(Line::from(spans)).render(area, buf);
+}
+
+/// Footer shown while the device is unplugged and we're waiting for it
+/// to come back (see `AppState::awaiting_reconnect`). Replaces the
+/// frozen-at-99% launch bar with a clear hint that replugging the cable
+/// auto-relaunches the app. Width-tiered so it survives narrow
+/// terminals; warn-coloured to match the disconnect banner.
+fn render_awaiting_reconnect_footer(area: Rect, buf: &mut Buffer, theme: &Theme) {
+    let width = area.width as usize;
+    let msg = if width >= 80 {
+        " 🔌 Téléphone débranché — rebranche le câble, l'app se relance toute seule   [q] quitter "
+    } else if width >= 50 {
+        " 🔌 Débranché — rebranche pour relancer   [q] quitter "
+    } else {
+        " 🔌 Rebranche le câble   [q] "
+    };
+    let line = Line::styled(
+        truncate_to_width(msg, width),
+        Style::default().fg(theme.warn).bg(theme.bg),
+    );
+    Paragraph::new(line).render(area, buf);
 }
 
 fn truncate_to_width(s: &str, max_chars: usize) -> String {
@@ -648,6 +679,35 @@ mod tests {
         assert!(
             !text.contains("r reload") && !text.contains("[r] reload"),
             "pre-ready footer should NOT advertise reload:\n{text}"
+        );
+    }
+
+    #[test]
+    fn footer_shows_replug_hint_when_device_disconnected() {
+        // Device unplugged → session Stopped, VM down. The footer must
+        // show the "rebranche" hint and NOT the frozen launch bar.
+        let mut buf = Buffer::empty(Rect::new(0, 0, 100, 20));
+        let mut state = AppState::new("my_app".into(), "debug".into());
+        state.apply(fl_core::AppEvent::Device(
+            fl_core::DeviceEvent::SessionState {
+                serial: "ABC".into(),
+                state: fl_core::DeviceSessionState::Stopped,
+            },
+        ));
+        render(
+            Rect::new(0, 0, 100, 20),
+            &mut buf,
+            &state,
+            &Theme::TOKYO_NIGHT,
+        );
+        let footer = dump(&buf).lines().last().unwrap_or_default().to_string();
+        assert!(
+            footer.contains("rebranche"),
+            "footer should hint to replug, got:\n{footer}"
+        );
+        assert!(
+            !footer.chars().any(|c| c == '█' || c == '░'),
+            "disconnected footer must not show the launch bar, got:\n{footer}"
         );
     }
 
