@@ -317,7 +317,7 @@ impl AppState {
     /// True when the device dropped out (USB unplugged / session
     /// stopped) and we're idling until it returns — NOT while a fresh
     /// launch or a post-replug recompile is in flight. Drives the
-    /// footer to show a "rebranche le câble" hint instead of the launch
+    /// footer to show a "replug the cable" hint instead of the launch
     /// progress bar, which would otherwise freeze at 99% and read as
     /// "still loading" the whole time the phone is unplugged.
     ///
@@ -415,7 +415,7 @@ impl AppState {
                 }
             }
             DeviceEvent::UsbDisconnected { .. } => {
-                self.show_banner(BannerKind::Info, "USB déconnecté — WiFi prend le relais");
+                self.show_banner(BannerKind::Info, "USB lost — switching to Wi-Fi");
             }
             DeviceEvent::WifiPaired { .. } => {
                 self.show_banner(BannerKind::Success, "WiFi pairing OK");
@@ -475,9 +475,7 @@ impl AppState {
                     let short = short_name_for_serial(&serial);
                     self.show_persistent_banner(
                         BannerKind::Warn,
-                        &format!(
-                            "[{short}] débranché — rebranche le câble, ça relance tout seul (q pour quitter)"
-                        ),
+                        &format!("[{short}] unplugged — replug to resume"),
                     );
                 }
                 // Freeze the chronometer on green (✓) only when EVERY

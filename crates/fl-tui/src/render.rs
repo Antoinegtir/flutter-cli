@@ -546,11 +546,11 @@ fn render_footer(area: Rect, buf: &mut Buffer, state: &AppState, theme: &Theme) 
 fn render_awaiting_reconnect_footer(area: Rect, buf: &mut Buffer, theme: &Theme) {
     let width = area.width as usize;
     let msg = if width >= 80 {
-        " 🔌 Téléphone débranché — rebranche le câble, l'app se relance toute seule   [q] quitter "
+        " 🔌 Device unplugged — replug the cable to relaunch automatically   [q] quit "
     } else if width >= 50 {
-        " 🔌 Débranché — rebranche pour relancer   [q] quitter "
+        " 🔌 Unplugged — replug to relaunch   [q] quit "
     } else {
-        " 🔌 Rebranche le câble   [q] "
+        " 🔌 Replug the cable   [q] "
     };
     let line = Line::styled(
         truncate_to_width(msg, width),
@@ -685,7 +685,7 @@ mod tests {
     #[test]
     fn footer_shows_replug_hint_when_device_disconnected() {
         // Device unplugged → session Stopped, VM down. The footer must
-        // show the "rebranche" hint and NOT the frozen launch bar.
+        // show the "replug" hint and NOT the frozen launch bar.
         let mut buf = Buffer::empty(Rect::new(0, 0, 100, 20));
         let mut state = AppState::new("my_app".into(), "debug".into());
         state.apply(fl_core::AppEvent::Device(
@@ -702,7 +702,7 @@ mod tests {
         );
         let footer = dump(&buf).lines().last().unwrap_or_default().to_string();
         assert!(
-            footer.contains("rebranche"),
+            footer.contains("replug"),
             "footer should hint to replug, got:\n{footer}"
         );
         assert!(
