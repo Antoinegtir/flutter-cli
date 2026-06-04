@@ -752,13 +752,16 @@ fn connect_vm_service(
                 ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
                 let mut seen: HashSet<String> = HashSet::new();
                 let mut consecutive_failures: u32 = 0;
-                // Track whether we've already enabled timeline
-                // logging this session. The `ext.dart.io.*`
-                // extensions are registered by the Dart runtime the
-                // FIRST time the app touches `dart:io` — which can
-                // be well after VM Service connect. Retry enabling
-                // on every tick until it sticks.
-                let mut timeline_enabled = false;
+                // Which isolate we last enabled timeline logging FOR.
+                // `httpEnableTimelineLogging` is per-isolate state, so we
+                // track the isolate id (not just a bool): a hot restart
+                // mints a fresh isolate with logging back OFF, and we must
+                // re-arm it for the new id (see `needs_timeline_enable`).
+                // The `ext.dart.io.*` extensions are also registered
+                // lazily by the Dart runtime on first `dart:io` touch —
+                // per isolate — so we retry every tick until the enable
+                // call sticks.
+                let mut timeline_enabled_for: Option<String> = None;
                 // Has any HTTP request been observed yet? We only
                 // emit the diagnostic "first request captured" log
                 // once so the user knows the panel is actually
@@ -787,7 +790,7 @@ fn connect_vm_service(
                                 .await
                                 .ok();
                             net_client = fresh;
-                            timeline_enabled = false; // re-arm on the new client
+                            timeline_enabled_for = None; // re-arm on the new client
                             consecutive_failures = 0;
                         }
                     }
@@ -803,7 +806,11 @@ fn connect_vm_service(
                             continue;
                         }
                     };
-                    if !timeline_enabled {
+                    // (Re)enable timeline logging whenever the current
+                    // isolate differs from the one we last armed — this is
+                    // what keeps the Network panel alive across a hot
+                    // restart, which mints a new isolate with logging OFF.
+                    if needs_timeline_enable(timeline_enabled_for.as_deref(), &iso) {
                         if net_client
                             .call(
                                 "ext.dart.io.httpEnableTimelineLogging",
@@ -812,7 +819,13 @@ fn connect_vm_service(
                             .await
                             .is_ok()
                         {
-                            timeline_enabled = true;
+                            timeline_enabled_for = Some(iso.clone());
+                            // The new isolate's request history starts
+                            // empty, so clear the dedupe set — otherwise
+                            // ids from the old isolate could suppress
+                            // genuinely-new requests that happen to reuse
+                            // an id.
+                            seen.clear();
                         } else {
                             // Extension not registered yet — the
                             // Dart runtime registers `ext.dart.io.*`
@@ -1450,6 +1463,19 @@ async fn capture_one(
     ))
 }
 
+/// Should the Network poll loop (re)enable `ext.dart.io` timeline
+/// logging for `current_iso`?
+///
+/// `httpEnableTimelineLogging` is **per-isolate** state. A hot restart
+/// (`R`) kills the running isolate and mints a brand-new one with a
+/// fresh id and timeline logging back OFF. So we must re-arm logging
+/// whenever the current isolate differs from the one we last enabled it
+/// for — not just once per poll loop. `enabled_for` is the isolate id we
+/// last successfully armed (`None` = never, or just reconnected).
+fn needs_timeline_enable(enabled_for: Option<&str>, current_iso: &str) -> bool {
+    enabled_for != Some(current_iso)
+}
+
 /// Make a device display name safe to drop into a filename.
 fn sanitize_filename(name: &str) -> String {
     let mut s: String = name
@@ -2082,5 +2108,30 @@ mod tests {
         assert_eq!(s.serial, "Pixel_8_ABCDEFG");
         assert_eq!(s.short_name, "Pixel8AB"); // 8 alphanumeric chars
         assert_eq!(s.display_name, "Pixel 8");
+    }
+
+    // ── Network inspector timeline-logging re-arm (hot-restart bug) ────────
+
+    #[test]
+    fn timeline_enable_needed_when_never_enabled() {
+        // Fresh poll loop: nothing enabled yet → must enable.
+        assert!(needs_timeline_enable(None, "isolates/A"));
+    }
+
+    #[test]
+    fn timeline_enable_skipped_when_already_enabled_for_same_isolate() {
+        // Steady state: same isolate, already armed → no re-enable
+        // (avoids hammering the VM Service every tick).
+        assert!(!needs_timeline_enable(Some("isolates/A"), "isolates/A"));
+    }
+
+    #[test]
+    fn timeline_enable_re_armed_after_hot_restart_mints_new_isolate() {
+        // THE regression test. Hot restart kills isolate A and mints a
+        // fresh isolate B. `ext.dart.io.httpEnableTimelineLogging` is
+        // per-isolate and resets on the new isolate, so we MUST re-enable
+        // it for B — otherwise getHttpProfile(B) returns nothing and the
+        // Network panel silently stops listing requests.
+        assert!(needs_timeline_enable(Some("isolates/A"), "isolates/B"));
     }
 }
